@@ -20,6 +20,7 @@ import com.nimbusds.jose.crypto.*
 import com.nimbusds.jose.jwk.Curve
 import com.nimbusds.jose.jwk.JWK
 import com.nimbusds.jose.jwk.gen.ECKeyGenerator
+import com.nimbusds.jose.jwk.gen.MLDSAKeyGenerator
 import com.nimbusds.jose.jwk.gen.OctetKeyPairGenerator
 import com.nimbusds.jose.jwk.gen.OctetSequenceKeyGenerator
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
@@ -103,6 +104,31 @@ private fun createContext(algorithm: JWSAlgorithm): Context = with(NimbusSdJwtOp
                 .generate()
             val signer = ECDSASigner(jwk).apply { jcaContext.provider = provider }
             val verifier = ECDSAVerifier(jwk.toPublicJWK())
+                .apply { jcaContext.provider = provider }
+                .asJwtVerifier()
+            Context(
+                jwk,
+                NimbusSdJwtOps.issuer(signer = signer, signAlgorithm = algorithm),
+                verifier,
+            )
+        }
+
+        in JWSAlgorithm.Family.ML_DSA -> {
+//            val curve = when (algorithm) {
+//                JWSAlgorithm.ES256 -> Curve.P_256
+//                JWSAlgorithm.ES256K -> Curve.SECP256K1
+//                JWSAlgorithm.ES384 -> Curve.P_384
+//                JWSAlgorithm.ES512 -> Curve.P_521
+//                else -> throw IllegalArgumentException("Unknown EC JWSAlgorithm $algorithm")
+//            }
+            val provider = BouncyCastleProvider()
+            val jwk = MLDSAKeyGenerator(algorithm)
+                .provider(provider)
+                .keyID(keyId)
+                .issueTime(issuedAt)
+                .generate()
+            val signer = MLDSASigner(jwk).apply { jcaContext.provider = provider }
+            val verifier = MLDSAVerifier(jwk.toPublicJWK())
                 .apply { jcaContext.provider = provider }
                 .asJwtVerifier()
             Context(

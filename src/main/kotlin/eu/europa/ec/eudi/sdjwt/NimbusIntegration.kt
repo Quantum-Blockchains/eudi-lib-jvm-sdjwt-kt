@@ -36,6 +36,7 @@ import com.nimbusds.jose.JWSVerifier as NimbusJWSVerifier
 import com.nimbusds.jose.crypto.ECDSAVerifier as NimbusECDSAVerifier
 import com.nimbusds.jose.crypto.Ed25519Verifier as NimbusEd25519Verifier
 import com.nimbusds.jose.crypto.MACVerifier as NimbusMACVerifier
+import com.nimbusds.jose.crypto.MLDSAVerifier as NimbusMLDSAVerifier
 import com.nimbusds.jose.crypto.RSASSAVerifier as NimbusRSASSAVerifier
 import com.nimbusds.jose.jwk.AsymmetricJWK as NimbusAsymmetricJWK
 import com.nimbusds.jose.jwk.ECKey as NimbusECKey
@@ -43,6 +44,7 @@ import com.nimbusds.jose.jwk.JWK as NimbusJWK
 import com.nimbusds.jose.jwk.JWKMatcher as NimbusJWKMatcher
 import com.nimbusds.jose.jwk.JWKSelector as NimbusJWKSelector
 import com.nimbusds.jose.jwk.JWKSet as NimbusJWKSet
+import com.nimbusds.jose.jwk.MLDSAKey as NimbusMLDSAKey
 import com.nimbusds.jose.jwk.OctetKeyPair as NimbusOctetKeyPair
 import com.nimbusds.jose.jwk.OctetSequenceKey as NimbusOctetSequenceKey
 import com.nimbusds.jose.jwk.RSAKey as NimbusRSAKey
@@ -366,27 +368,40 @@ internal open class JwkSourceJWTProcessor<C : NimbusSecurityContext>(
         }
 
     override fun process(signedJWT: NimbusSignedJWT, context: C?): NimbusJWTClaimsSet {
+        println("KOSTIA process 1")
+        println("-------------------------------------TEST 2 lib------------------------------------------------")
         typeVerifier?.verify(signedJWT.header.type, context)
-
+        println("KOSTIA process 2")
         val claimsSet = signedJWT.jwtClaimSet()
+        println("KOSTIA process 3")
+        println("signedJWT: $signedJWT")
+        println("useKeyId: $useKeyId")
+        println("signedJWT header: ${signedJWT.header}")
         val jwkMatcher =
             if (useKeyId) NimbusJWKMatcher.forJWSHeader(signedJWT.header)
             else NimbusJWKMatcher.forJWSHeader(signedJWT.header).withoutKeyId()
+        println("KOSTIA process 4")
         val jwkSelector = NimbusJWKSelector(jwkMatcher)
-
+        println("KOSTIA process 5")
         val jwks = jwkSource.get(jwkSelector, context)
+        println("KOSTIA process 6")
         if (jwks.isNullOrEmpty()) {
+            println("KOSTIA process 7")
             throw NimbusBadJOSEException("Signed JWT rejected: Another algorithm expected, or no matching key(s) found")
         }
-
+        println("KOSTIA process 8")
         for (jwk in jwks) {
+            println("KOSTIA process 9")
             val verifier = jwsVerifierFor(signedJWT.header.algorithm, jwk)
+            println("KOSTIA process 10")
             if (signedJWT.verify(verifier)) {
+                println("KOSTIA process 11")
                 claimSetVerifier?.verify(claimsSet, context)
+                println("KOSTIA process 12")
                 return claimsSet
             }
         }
-
+        println("KOSTIA process 13")
         // No more keys to try out
         throw NimbusBadJOSEException("Signed JWT rejected: Invalid signature or no matching verifier(s) found")
     }
@@ -407,6 +422,7 @@ internal open class JwkSourceJWTProcessor<C : NimbusSecurityContext>(
                 in NimbusJWSAlgorithm.Family.RSA -> NimbusRSASSAVerifier(jwk.expectIs<NimbusRSAKey>())
                 in NimbusJWSAlgorithm.Family.EC -> NimbusECDSAVerifier(jwk.expectIs<NimbusECKey>())
                 in NimbusJWSAlgorithm.Family.ED -> NimbusEd25519Verifier(jwk.expectIs<NimbusOctetKeyPair>())
+                in NimbusJWSAlgorithm.Family.ML_DSA -> NimbusMLDSAVerifier(jwk.expectIs<NimbusMLDSAKey>())
                 else -> throw NimbusBadJOSEException("Unsupported JWS algorithm $algorithm")
             }
 

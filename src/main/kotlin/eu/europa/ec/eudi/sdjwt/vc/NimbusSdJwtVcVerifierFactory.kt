@@ -118,21 +118,27 @@ internal fun sdJwtVcSignatureVerifier(
     lookup: LookupPublicKeysFromDIDDocument<NimbusJWK>? = null,
 ): JwtSignatureVerifier<NimbusSignedJWT> = JwtSignatureVerifier { unverifiedJwt ->
     withContext(Dispatchers.IO) {
+        println("sdJwtVcSignatureVerifier 1")
         val signedJwt = try {
             NimbusSignedJWT.parse(unverifiedJwt)
         } catch (_: ParseException) {
             throw VerificationError.ParsingError.asException()
         }
-
+        println("sdJwtVcSignatureVerifier 2")
         val (jwkSource, useKeyId) = issuerJwkSource(httpClientFactory, trust, lookup, signedJwt)
         yield()
-
+        println("sdJwtVcSignatureVerifier 3")
         try {
+            println("sdJwtVcSignatureVerifier 4")
             val jwtProcessor = SdJwtVcJwtProcessor(jwkSource, useKeyId)
+            println("sdJwtVcSignatureVerifier 5")
             jwtProcessor.process(signedJwt, null)
+            println("sdJwtVcSignatureVerifier 6")
             yield()
+            println("sdJwtVcSignatureVerifier 7")
             signedJwt
         } catch (e: NimbusBadJOSEException) {
+            println("sdJwtVcSignatureVerifier 8")
             throw VerificationError.InvalidJwt(e).asException()
         }
     }
