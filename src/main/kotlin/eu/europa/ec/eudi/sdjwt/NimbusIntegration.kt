@@ -37,6 +37,7 @@ import com.nimbusds.jose.JWSVerifier as NimbusJWSVerifier
 import com.nimbusds.jose.crypto.ECDSAVerifier as NimbusECDSAVerifier
 import com.nimbusds.jose.crypto.Ed25519Verifier as NimbusEd25519Verifier
 import com.nimbusds.jose.crypto.MACVerifier as NimbusMACVerifier
+import com.nimbusds.jose.crypto.MLDSAVerifier as NimbusMLDSAVerifier
 import com.nimbusds.jose.crypto.RSASSAVerifier as NimbusRSASSAVerifier
 import com.nimbusds.jose.jwk.AsymmetricJWK as NimbusAsymmetricJWK
 import com.nimbusds.jose.jwk.ECKey as NimbusECKey
@@ -44,6 +45,7 @@ import com.nimbusds.jose.jwk.JWK as NimbusJWK
 import com.nimbusds.jose.jwk.JWKMatcher as NimbusJWKMatcher
 import com.nimbusds.jose.jwk.JWKSelector as NimbusJWKSelector
 import com.nimbusds.jose.jwk.JWKSet as NimbusJWKSet
+import com.nimbusds.jose.jwk.MLDSAKey as NimbusMLDSAKey
 import com.nimbusds.jose.jwk.OctetKeyPair as NimbusOctetKeyPair
 import com.nimbusds.jose.jwk.OctetSequenceKey as NimbusOctetSequenceKey
 import com.nimbusds.jose.jwk.RSAKey as NimbusRSAKey
@@ -407,6 +409,7 @@ internal open class JwkSourceJWTProcessor<C : NimbusSecurityContext>(
                 in NimbusJWSAlgorithm.Family.RSA -> NimbusRSASSAVerifier(jwk.expectIs<NimbusRSAKey>())
                 in NimbusJWSAlgorithm.Family.EC -> NimbusECDSAVerifier(jwk.expectIs<NimbusECKey>())
                 in NimbusJWSAlgorithm.Family.ED -> NimbusEd25519Verifier(jwk.expectIs<NimbusOctetKeyPair>())
+                in NimbusJWSAlgorithm.Family.ML_DSA -> NimbusMLDSAVerifier(jwk.expectIs<NimbusMLDSAKey>())
                 else -> throw NimbusBadJOSEException("Unsupported JWS algorithm $algorithm")
             }
 

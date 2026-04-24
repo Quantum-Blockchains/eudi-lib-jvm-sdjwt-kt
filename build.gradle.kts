@@ -22,7 +22,8 @@ repositories {
 
 dependencies {
     api(libs.kotlinx.serialization.json)
-    api(libs.nimbus.jose.jwt)
+    api(files("libs/nimbus-jose-jwt-10.3.2-PQC.jar"))
+    // api(libs.nimbus.jose.jwt)
     implementation(libs.kotlinx.coroutines.core)
     api(libs.ktor.client.core)
     testImplementation(libs.ktor.client.content.negotiation)
