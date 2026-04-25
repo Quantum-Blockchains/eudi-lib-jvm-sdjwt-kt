@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -148,6 +148,7 @@ sealed interface TypeMetadataPolicy {
      */
     data class Optional(
         val resolveTypeMetadata: ResolveTypeMetadata,
+        val jsonSchemaValidator: JsonSchemaValidator?,
     ) : TypeMetadataPolicy
 
     /**
@@ -156,6 +157,7 @@ sealed interface TypeMetadataPolicy {
      */
     data class AlwaysRequired(
         val resolveTypeMetadata: ResolveTypeMetadata,
+        val jsonSchemaValidator: JsonSchemaValidator?,
     ) : TypeMetadataPolicy
 
     /**
@@ -165,6 +167,7 @@ sealed interface TypeMetadataPolicy {
     data class RequiredFor(
         val vcts: Set<Vct>,
         val resolveTypeMetadata: ResolveTypeMetadata,
+        val jsonSchemaValidator: JsonSchemaValidator?,
     ) : TypeMetadataPolicy {
         init {
             require(vcts.isNotEmpty()) { "at least one VCT must be specified" }
@@ -177,7 +180,6 @@ interface SdJwtVcVerifierFactory<JWT, in JWK, out X509Chain> {
     operator fun invoke(
         issuerVerificationMethod: IssuerVerificationMethod<JWT, JWK, X509Chain>,
         typeMetadataPolicy: TypeMetadataPolicy,
-        checkStatus: CheckWithTokenStatusList?,
     ): SdJwtVcVerifier<JWT>
 
     fun <JWT1, JWK1, X509Chain1> transform(
@@ -190,12 +192,10 @@ interface SdJwtVcVerifierFactory<JWT, in JWK, out X509Chain> {
             override fun invoke(
                 issuerVerificationMethod: IssuerVerificationMethod<JWT1, JWK1, X509Chain1>,
                 typeMetadataPolicy: TypeMetadataPolicy,
-                checkStatus: CheckWithTokenStatusList?,
             ): SdJwtVcVerifier<JWT1> =
                 this@SdJwtVcVerifierFactory.invoke(
                     issuerVerificationMethod.transform(convertFromJwt, convertFromJwk, convertToX509Chain),
                     typeMetadataPolicy,
-                    checkStatus,
                 ).map(convertToJwt)
         }
 }

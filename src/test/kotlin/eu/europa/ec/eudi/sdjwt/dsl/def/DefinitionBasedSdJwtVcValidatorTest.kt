@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -192,7 +192,8 @@ class DefinitionBasedSdJwtVcValidatorTest {
 
     /**
      * Although the SD-JWT contains some obvious errors, [SdJwtDefinition] cannot detect them.
-     * That's actually a limitation of SD-JWT-VC type metadata
+     * That's actually a limitation of SD-JWT-VC type metadata, which uses JsonSchema
+     * for such validations
      */
     @Test
     fun limitationsOfTypeMetadata() = PidDefinition.shouldConsiderValid(

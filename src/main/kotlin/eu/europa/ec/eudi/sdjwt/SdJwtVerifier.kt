@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,17 +16,14 @@
 package eu.europa.ec.eudi.sdjwt
 
 import eu.europa.ec.eudi.sdjwt.KeyBindingError.*
-import eu.europa.ec.eudi.sdjwt.KeyBindingVerifier.Companion.mustBePresent
 import eu.europa.ec.eudi.sdjwt.KeyBindingVerifier.MustBePresentAndValid
 import eu.europa.ec.eudi.sdjwt.KeyBindingVerifier.MustNotBePresent
 import eu.europa.ec.eudi.sdjwt.VerificationError.*
 import eu.europa.ec.eudi.sdjwt.vc.SdJwtVcVerificationError
-import kotlinx.serialization.json.*
-import kotlin.contracts.contract
-import kotlin.time.Clock
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.seconds
-import kotlin.time.Instant
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Errors that may occur during SD-JWT verification
@@ -221,26 +218,23 @@ private fun interface KeyBindingVerifierOps<JWT> {
      * @param expectedDigest The digest of the SD-JWT, as expected to be found inside the Key Binding JWT
      * under `sd_hash` claim.
      * It will be used in case of [MustBePresentAndValid]
-     * @param challenge Challenge for verifying the validity of the Key-Binding JWT.
-     * Will be used in when [this] is [MustBePresentAndValid]
      * @param unverifiedKbJwt the Key Binding JWT to be verified.
      * In case of [MustNotBePresent] it must not be provided.
-     * Otherwise, in case of [MustBePresentAndValid], it must be present, having a valid signature
-     * and being valid per the [challenge]
+     * Otherwise, in case of [MustBePresentAndValid], it must be present, having a valid signature and containing
+     * at least an [expectedDigest] under claim `sd_hash`
      *
      * @return the claims of the Key Binding JWT, in case of [MustBePresentAndValid], otherwise null.
      */
     suspend fun KeyBindingVerifier<JWT>.verify(
         jwtClaims: JsonObject,
         expectedDigest: SdJwtDigest,
-        challenge: ChallengePredicate?,
         unverifiedKbJwt: String?,
     ): Result<JWT?>
 
     companion object {
 
         operator fun <JWT> invoke(claimsOf: (JWT) -> JsonObject): KeyBindingVerifierOps<JWT> =
-            KeyBindingVerifierOps { jwtClaims, expectedDigest, challenge, unverifiedKbJwt ->
+            KeyBindingVerifierOps { jwtClaims, expectedDigest, unverifiedKbJwt ->
 
                 fun mustBeNotPresent(): JWT? =
                     if (unverifiedKbJwt != null) throw UnexpectedKeyBindingJwt.asException()
@@ -256,13 +250,14 @@ private fun interface KeyBindingVerifierOps<JWT> {
                         }
                     }.getOrElse { error -> throw InvalidKeyBindingJwt("Could not verify KeyBinding JWT", error).asException() }
 
-                    val keyBindingJwtClaims = KeyBindingJwtClaims(claimsOf(keyBindingJwt))
-                    if (expectedDigest.value != keyBindingJwtClaims.sdHash) {
-                        throw InvalidKeyBindingJwt("${RFC9901.CLAIM_SD_HASH} claim contains an invalid value").asException()
-                    }
-                    if (null != challenge && (keyBindingJwtClaims.iat !in challenge.issuedAt)) {
-                        throw InvalidKeyBindingJwt("'${RFC7519.ISSUED_AT}' is not withing the acceptable time window").asException()
-                    }
+                    val keyBindingJwtClaims = claimsOf(keyBindingJwt)
+                    val sdHash = keyBindingJwtClaims[SdJwtSpec.CLAIM_SD_HASH]
+                        ?.takeIf { element -> element is JsonPrimitive && element.isString }
+                        ?.jsonPrimitive
+                        ?.contentOrNull
+                    if (expectedDigest.value != sdHash) throw InvalidKeyBindingJwt(
+                        "${SdJwtSpec.CLAIM_SD_HASH} claim contains an invalid value",
+                    ).asException()
 
                     return keyBindingJwt
                 }
@@ -278,82 +273,6 @@ private fun interface KeyBindingVerifierOps<JWT> {
 
 internal fun KeyBindingError.asException(): SdJwtVerificationException =
     KeyBindingFailed(this).asException()
-
-private fun JsonObject.iat(): Instant? =
-    this[RFC7519.ISSUED_AT]
-        ?.let {
-            check(it is JsonPrimitive && !it.isString) {
-                "'${RFC7519.ISSUED_AT}' claim must be a number"
-            }
-            Instant.fromEpochSeconds(it.content.toLong())
-        }
-
-private fun JsonElement.isString(): Boolean {
-    contract {
-        returns(true) implies (this@isString is JsonPrimitive)
-    }
-    return this is JsonPrimitive && isString
-}
-
-private fun JsonObject.aud(): String? =
-    this[RFC7519.AUDIENCE]
-        ?.let {
-            check(it.isString()) {
-                "'${RFC7519.AUDIENCE}' claim must be a string"
-            }
-            it.content
-        }
-
-private fun JsonObject.nonce(): String? =
-    this[RFC9901.CLAIM_NONCE]
-        ?.let {
-            check(it.isString()) {
-                "'${RFC9901.CLAIM_NONCE}' claim must be a string"
-            }
-            it.content
-        }
-
-private fun JsonObject.sdHash(): String? =
-    this[RFC9901.CLAIM_SD_HASH]
-        ?.let {
-            check(it.isString()) {
-                "'${RFC9901.CLAIM_SD_HASH}' claim must be a string"
-            }
-            it.content
-        }
-
-/**
- * Τhe claims of a Key-Binding JWT.
- */
-@JvmInline
-private value class KeyBindingJwtClaims private constructor(val value: JsonObject) : Map<String, JsonElement> by value {
-
-    val sdHash: String get() = checkNotNull(value.sdHash())
-    val iat: Instant get() = checkNotNull(value.iat())
-    val audience: String get() = checkNotNull(value.aud())
-    val nonce: String get() = checkNotNull(value.nonce())
-
-    companion object {
-        /**
-         * Creates a new instance and verifies the claims required per RFC9901 are present.
-         *
-         * The following claims are required to be present:
-         * 1. sd_hash
-         * 2. iat
-         * 3. aud
-         * 4. nonce
-         *
-         * @throws SdJwtVerificationException in case any of the required claims is missing
-         */
-        operator fun invoke(value: JsonObject): KeyBindingJwtClaims {
-            if (null == value.sdHash()) throw InvalidKeyBindingJwt("'${RFC9901.CLAIM_SD_HASH}' claim is missing").asException()
-            if (null == value.iat()) throw InvalidKeyBindingJwt("'${RFC7519.ISSUED_AT}' claim is missing").asException()
-            if (null == value.aud()) throw InvalidKeyBindingJwt("'${RFC7519.AUDIENCE}' claim is missing").asException()
-            if (null == value.nonce()) throw InvalidKeyBindingJwt("'${RFC9901.CLAIM_NONCE}' claim is missing").asException()
-            return KeyBindingJwtClaims(value)
-        }
-    }
-}
 
 @Suppress("unused")
 fun interface UnverifiedIssuanceFrom<out JWT> {
@@ -434,7 +353,6 @@ interface SdJwtVerifier<JWT> {
      * @param keyBindingVerifier the verification of the KeyBinding signature
      * Verifier should be aware of how the Issuer has chosen to include the
      * Holder public key into the SD-JWT and which algorithm the Holder used to sign the challenge of the Verifier.
-     * @param challenge Challenge for verifying the validity of the Key-Binding JWT.
      * @param unverifiedSdJwt the SD-JWT to be verified
      * @return the verified SD-JWT and the KeyBinding JWT, if valid.
      * Otherwise, method could raise a [SdJwtVerificationException]
@@ -445,7 +363,6 @@ interface SdJwtVerifier<JWT> {
     suspend fun verify(
         jwtSignatureVerifier: JwtSignatureVerifier<JWT>,
         keyBindingVerifier: MustBePresentAndValid<JWT>,
-        challenge: ChallengePredicate?,
         unverifiedSdJwt: String,
     ): Result<SdJwtAndKbJwt<JWT>>
 
@@ -461,7 +378,6 @@ interface SdJwtVerifier<JWT> {
      * @param keyBindingVerifier the verification of the KeyBinding signature
      * Verifier should be aware of how the Issuer has chosen to include the
      * Holder public key into the SD-JWT and which algorithm the Holder used to sign the challenge of the Verifier.
-     * @param challenge Challenge for verifying the validity of the Key-Binding JWT.
      * @param unverifiedSdJwt the SD-JWT to be verified
      * @return the verified SD-JWT and KeyBinding JWT, if valid.
      * Otherwise, method could raise a [SdJwtVerificationException]
@@ -472,94 +388,34 @@ interface SdJwtVerifier<JWT> {
     suspend fun verify(
         jwtSignatureVerifier: JwtSignatureVerifier<JWT>,
         keyBindingVerifier: MustBePresentAndValid<JWT>,
-        challenge: ChallengePredicate?,
         unverifiedSdJwt: JsonObject,
     ): Result<SdJwtAndKbJwt<JWT>> =
-        verify(
-            jwtSignatureVerifier,
-            keyBindingVerifier,
-            challenge,
-            JwsJsonSupport.parseIntoStandardForm(unverifiedSdJwt),
-        )
+        verify(jwtSignatureVerifier, keyBindingVerifier, JwsJsonSupport.parseIntoStandardForm(unverifiedSdJwt))
 
     companion object {
 
-        operator fun <JWT> invoke(clock: Clock, skew: Duration?, claimsOf: (JWT) -> JsonObject): SdJwtVerifier<JWT> {
-            if (null != skew) {
-                require(!skew.isNegative()) { "skew cannot be negative" }
-            }
+        operator fun <JWT> invoke(claimsOf: (JWT) -> JsonObject): SdJwtVerifier<JWT> = object : SdJwtVerifier<JWT> {
 
-            return object : SdJwtVerifier<JWT> {
-                override suspend fun verify(
-                    jwtSignatureVerifier: JwtSignatureVerifier<JWT>,
-                    unverifiedSdJwt: String,
-                ): Result<SdJwt<JWT>> =
-                    doVerify(claimsOf, jwtSignatureVerifier, MustNotBePresent, clock, skew ?: Duration.ZERO, null, unverifiedSdJwt)
-                        .map { (sdJwt, kbJwt) ->
-                            check(kbJwt == null) { "KeyBinding JWT is not expected" }
-                            sdJwt
-                        }
+            override suspend fun verify(
+                jwtSignatureVerifier: JwtSignatureVerifier<JWT>,
+                unverifiedSdJwt: String,
+            ): Result<SdJwt<JWT>> =
+                doVerify(claimsOf, jwtSignatureVerifier, MustNotBePresent, unverifiedSdJwt)
+                    .map { (sdJwt, kbJwt) ->
+                        check(kbJwt == null) { "KeyBinding JWT is not expected" }
+                        sdJwt
+                    }
 
-                override suspend fun verify(
-                    jwtSignatureVerifier: JwtSignatureVerifier<JWT>,
-                    keyBindingVerifier: MustBePresentAndValid<JWT>,
-                    challenge: ChallengePredicate?,
-                    unverifiedSdJwt: String,
-                ): Result<SdJwtAndKbJwt<JWT>> =
-                    doVerify(claimsOf, jwtSignatureVerifier, keyBindingVerifier, clock, skew ?: Duration.ZERO, challenge, unverifiedSdJwt)
-                        .map { (sdJwt, kbJwt) ->
-                            checkNotNull(kbJwt) { "KeyBinding JWT is expected" }
-                            SdJwtAndKbJwt(sdJwt, kbJwt)
-                        }
-            }
-        }
-    }
-}
-
-/**
- * Challenge for Key-Binding JWT.
- *
- * @property issuedAt window within which `iat` of the Key-Binding JWT is considered valid
- * @property exactMatchClaims other claims that must be exactly matched in the Key-Binding JWT claims-set
- */
-data class ChallengePredicate private constructor(
-    internal val issuedAt: ClosedRange<Instant>,
-    internal val exactMatchClaims: JsonObject,
-) {
-    init {
-        require(!issuedAt.isEmpty()) { "issuedAt must not be an empty range" }
-    }
-
-    companion object {
-        /**
-         * Creates a new [ChallengePredicate] instance.
-         *
-         * @param issuedAt expected `iat` of the Key-Binding JWT
-         * @param audience expected `aud` of the Key-Binding JWT
-         * @param nonce expected `nonce` of the Key-Binding JWT
-         * @param skew **positive** duration, if provided defines a time window with [iat] within which `iat` of Key-Binding JWT is considered valid
-         * @param exactMatchClaimsBuilder builder for other claims that must be exactly matched withing the Key-Binding JWT claims-set
-         */
-        operator fun invoke(
-            issuedAt: Instant,
-            audience: String,
-            nonce: String,
-            skew: Duration = 5.seconds,
-            exactMatchClaimsBuilder: JsonObjectBuilder.() -> Unit = {},
-        ): ChallengePredicate {
-            require(!skew.isNegative()) { "skew cannot be negative" }
-            val exactMatchClaims =
-                buildJsonObject {
-                    exactMatchClaimsBuilder()
-                    put(RFC7519.AUDIENCE, audience)
-                    put(RFC9901.CLAIM_NONCE, nonce)
-                }.filterKeys {
-                    it !in setOf(RFC7519.ISSUED_AT, RFC9901.CLAIM_SD_HASH)
-                }.let {
-                    JsonObject(it)
-                }
-            val issuedAt = (issuedAt - skew).withSecondsPrecision()..(issuedAt + skew).withSecondsPrecision()
-            return ChallengePredicate(issuedAt, exactMatchClaims)
+            override suspend fun verify(
+                jwtSignatureVerifier: JwtSignatureVerifier<JWT>,
+                keyBindingVerifier: MustBePresentAndValid<JWT>,
+                unverifiedSdJwt: String,
+            ): Result<SdJwtAndKbJwt<JWT>> =
+                doVerify(claimsOf, jwtSignatureVerifier, keyBindingVerifier, unverifiedSdJwt)
+                    .map { (sdJwt, kbJwt) ->
+                        checkNotNull(kbJwt) { "KeyBinding JWT is expected" }
+                        SdJwtAndKbJwt(sdJwt, kbJwt)
+                    }
         }
     }
 }
@@ -568,9 +424,6 @@ private suspend fun <JWT> doVerify(
     claimsOf: (JWT) -> JsonObject,
     jwtSignatureVerifier: JwtSignatureVerifier<JWT>,
     keyBindingVerifier: KeyBindingVerifier<JWT>,
-    clock: Clock,
-    skew: Duration,
-    challenge: ChallengePredicate?,
     unverifiedSdJwt: String,
 ): Result<Pair<SdJwt<JWT>, JWT?>> = runCatchingCancellable {
     // Parse
@@ -581,68 +434,18 @@ private suspend fun <JWT> doVerify(
     val jwtClaims = claimsOf(jwt)
     val hashAlgorithm = jwtClaims.hashAlgorithm()
     val disclosures = toDisclosures(unverifiedDisclosures)
-    val (recreated, _) = SdJwtRecreateClaimsOps.recreateClaimsAndDisclosuresPerClaim(jwtClaims, disclosures).getOrThrow()
-
-    // Verify validity of SD-JWT (checks `nbf`, and `exp`)
-    recreated.validate(clock, skew)
+    val (_, _) = SdJwtRecreateClaimsOps.recreateClaimsAndDisclosuresPerClaim(jwtClaims, disclosures).getOrThrow()
 
     // Check Key binding
     val expectedDigest = SdJwtDigest.digest(hashAlgorithm, unverifiedSdJwt).getOrThrow()
     val kbJwt =
         with(KeyBindingVerifierOps(claimsOf)) {
-            keyBindingVerifier.verify(jwtClaims, expectedDigest, challenge, unverifiedKBJwt).getOrThrow()
+            keyBindingVerifier.verify(jwtClaims, expectedDigest, unverifiedKBJwt).getOrThrow()
         }
 
     // Assemble it
     val sdJwt = SdJwt(jwt, disclosures)
     sdJwt to kbJwt
-}
-
-private fun JsonElement.isLong(): Boolean {
-    contract {
-        returns(true) implies (this@isLong is JsonPrimitive)
-    }
-    return this is JsonPrimitive && null != longOrNull
-}
-
-private fun JsonObject.nbf(): Instant? =
-    this[RFC7519.NOT_BEFORE]
-        ?.let {
-            check(it.isLong()) {
-                "'${RFC7519.NOT_BEFORE}' claim must be a number"
-            }
-            Instant.fromEpochSeconds(it.content.toLong())
-        }
-
-private fun JsonObject.exp(): Instant? =
-    this[RFC7519.EXPIRATION_TIME]
-        ?.let {
-            check(it.isLong()) {
-                "'${RFC7519.EXPIRATION_TIME}' claim must be a number"
-            }
-            Instant.fromEpochSeconds(it.content.toLong())
-        }
-
-/**
- * Returns a new [Instant] that has seconds precision.
- */
-private fun Instant.withSecondsPrecision(): Instant = Instant.fromEpochSeconds(epochSeconds, 0)
-
-private fun JsonObject.validate(clock: Clock, skew: Duration) {
-    val now = clock.now().withSecondsPrecision()
-    val nbf = nbf()
-    if (null != nbf) {
-        if ((nbf - skew) > now) {
-            throw InvalidJwt(("SD-JWT is not active yet")).asException()
-        }
-    }
-
-    val exp = exp()
-    if (null != exp) {
-        if (now >= (exp + skew)) {
-            throw InvalidJwt(("SD-JWT is expired")).asException()
-        }
-    }
 }
 
 /**

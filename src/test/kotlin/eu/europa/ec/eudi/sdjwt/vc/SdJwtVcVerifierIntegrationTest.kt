@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,11 @@
  */
 package eu.europa.ec.eudi.sdjwt.vc
 
+import com.networknt.schema.InputFormat
+import com.networknt.schema.JsonSchemaFactory
+import com.networknt.schema.SchemaValidatorsConfig
+import com.networknt.schema.SpecVersion
+import com.networknt.schema.regex.JoniRegularExpressionFactory
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.crypto.ECDSASigner
 import com.nimbusds.jose.crypto.ECDSAVerifier
@@ -31,8 +36,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import java.util.*
 import kotlin.test.*
+import com.networknt.schema.JsonSchema as ExternalJsonSchema
 
 /**
  * Integration tests for [SdJwtVcVerifier].
@@ -58,9 +65,14 @@ class SdJwtVcVerifierIntegrationTest {
                         }
                     }
                 },
+                lookupJsonSchema = { schemaUri, _ ->
+                    fail("LookupJsonSchema should not have been invoked. Schema URI: $schemaUri")
+                },
             ),
+            jsonSchemaValidator = { unvalidated, schema ->
+                JsonSchemaConverter.convert(schema).validate(unvalidated)
+            },
         ),
-        null,
     )
 
     private suspend fun issue(builder: SdJwtObjectBuilder.() -> Unit): String = issuer.issue(sdJwt { builder() }).getOrThrow().serialize()
@@ -101,8 +113,7 @@ class SdJwtVcVerifierIntegrationTest {
             claim(RFC7519.ISSUER, "https://example.com/issuer")
             sdClaim(SdJwtVcSpec.VCT, "urn:eudi:pid:1")
         }
-        val exception =
-            assertFailsWith<SdJwtVerificationException> { verifier.verify(serialized).getOrThrow() }
+        val exception = assertFailsWith<SdJwtVerificationException> { verifier.verify(serialized).getOrThrow() }
         val sdJwtVcError = assertIs<VerificationError.SdJwtVcError>(exception.reason)
         val sdJwtVcVerificationError =
             assertIs<SdJwtVcVerificationError.TypeMetadataVerificationError.TypeMetadataResolutionFailure>(sdJwtVcError.error)
@@ -123,8 +134,7 @@ class SdJwtVcVerifierIntegrationTest {
                 claim("18", true)
             }
         }
-        val exception =
-            assertFailsWith<SdJwtVerificationException> { verifier.verify(serialized).getOrThrow() }
+        val exception = assertFailsWith<SdJwtVerificationException> { verifier.verify(serialized).getOrThrow() }
         val sdJwtVcError = assertIs<VerificationError.SdJwtVcError>(exception.reason)
         val sdJwtVcVerificationError =
             assertIs<SdJwtVcVerificationError.TypeMetadataVerificationError.TypeMetadataValidationFailure>(sdJwtVcError.error)
@@ -135,6 +145,33 @@ class SdJwtVcVerifierIntegrationTest {
             ClaimPath.claim("age_equal_or_over").claim("18"),
         ).map { DefinitionViolation.IncorrectlyDisclosedClaim(it) } + DefinitionViolation.WrongClaimType(ClaimPath.claim("nationalities"))
         assertContentEquals(expectedErrors, sdJwtVcVerificationError.errors)
+    }
+
+    @Test
+    fun verificationFailureDueToJsonSchemaValidationFailure() = runTest {
+        val serialized = issue {
+            claim(RFC7519.ISSUER, "https://example.com/issuer")
+            claim(SdJwtVcSpec.VCT, "urn:eudi:pid:1")
+            sdClaim("family_name", "")
+            sdArrClaim("nationalities") {
+                sdClaim(10)
+            }
+            sdClaim("email", "tyler.neal")
+            sdObjClaim("age_equal_or_over") {
+                sdClaim("18", "Yes")
+            }
+        }
+        val exception = assertFailsWith<SdJwtVerificationException> { verifier.verify(serialized).getOrThrow() }
+        val sdJwtVcError = assertIs<VerificationError.SdJwtVcError>(exception.reason)
+        val sdJwtVcVerificationError =
+            assertIs<SdJwtVcVerificationError.JsonSchemaVerificationError.JsonSchemaValidationFailure>(sdJwtVcError.error)
+        val expectedViolations = listOf(
+            "/family_name: must be at least 1 characters long",
+            "/nationalities/0: integer found, string expected",
+            "/email: does not match the email pattern must be a valid RFC 5321 Mailbox",
+            "/age_equal_or_over/18: string found, boolean expected",
+        )
+        assertEquals(expectedViolations, sdJwtVcVerificationError.errors[0].orEmpty().map { it.description })
     }
 
     @Test
@@ -158,153 +195,44 @@ class SdJwtVcVerifierIntegrationTest {
                         documentIntegrityParsed = true
                         Result.success(null)
                     },
+                    lookupJsonSchema = { _, _ -> fail("Did not expect to try and resolve Json Schema") },
                 ),
+                jsonSchemaValidator = null,
             ),
-            null,
         )
 
         verifier.verify(serialized).getOrThrow()
         assertTrue(documentIntegrityParsed)
     }
-
-    @Test
-    fun `when status reference is not present, status resolver is not invoked`() = runTest {
-        val serialized = issue {
-            claim(RFC7519.ISSUER, "https://example.com/issuer")
-            claim(SdJwtVcSpec.VCT, "urn:eudi:ehic:1")
-        }
-        val checkStatus = CheckWithTokenStatusList { _, _ -> fail("CheckWithTokenStatusList should not have been invoked") }
-        val verifier = NimbusSdJwtOps.SdJwtVcVerifier(
-            issuerVerificationMethod = IssuerVerificationMethod.usingCustom(ECDSAVerifier(issuerKey).asJwtVerifier()),
-            TypeMetadataPolicy.NotUsed,
-            checkStatus,
-        )
-        verifier.verify(serialized).getOrThrow()
-    }
-
-    @Test
-    fun `when status reference is not a json object, verification fails`() = runTest {
-        val serialized = issue {
-            claim(RFC7519.ISSUER, "https://example.com/issuer")
-            claim(SdJwtVcSpec.VCT, "urn:eudi:ehic:1")
-            claim(TokenStatusListSpec.STATUS, "status")
-        }
-        val checkStatus = CheckWithTokenStatusList { _, _ -> fail("CheckWithTokenStatusList should not have been invoked") }
-        val verifier = NimbusSdJwtOps.SdJwtVcVerifier(
-            issuerVerificationMethod = IssuerVerificationMethod.usingCustom(ECDSAVerifier(issuerKey).asJwtVerifier()),
-            TypeMetadataPolicy.NotUsed,
-            checkStatus,
-        )
-        val exception = assertFailsWith<SdJwtVerificationException> { verifier.verify(serialized).getOrThrow() }
-        val error = assertIs<VerificationError.SdJwtVcError>(exception.reason)
-        val reason = assertIs<SdJwtVcVerificationError.StatusVerificationError.StatusCheckFailure>(error.error)
-        assertEquals("'status' claim must be a JsonObject", reason.message)
-    }
-
-    @Test
-    fun `when status list reference is malformed, verification fails`() = runTest {
-        val serialized = issue {
-            claim(RFC7519.ISSUER, "https://example.com/issuer")
-            claim(SdJwtVcSpec.VCT, "urn:eudi:ehic:1")
-            objClaim(TokenStatusListSpec.STATUS) {
-                objClaim(TokenStatusListSpec.STATUS_LIST) {
-                    claim(TokenStatusListSpec.INDEX, "index")
-                    claim(TokenStatusListSpec.URI, 1)
-                }
-            }
-        }
-        val checkStatus = CheckWithTokenStatusList { _, _ -> fail("CheckWithTokenStatusList should not have been invoked") }
-        val verifier = NimbusSdJwtOps.SdJwtVcVerifier(
-            issuerVerificationMethod = IssuerVerificationMethod.usingCustom(ECDSAVerifier(issuerKey).asJwtVerifier()),
-            TypeMetadataPolicy.NotUsed,
-            checkStatus,
-        )
-        val exception = assertFailsWith<SdJwtVerificationException> { verifier.verify(serialized).getOrThrow() }
-        val error = assertIs<VerificationError.SdJwtVcError>(exception.reason)
-        val reason = assertIs<SdJwtVcVerificationError.StatusVerificationError.StatusCheckFailure>(error.error)
-        assertEquals("'status' claim is malformed", reason.message)
-    }
-
-    @Test
-    fun `when status resolution fails, verification fails`() = runTest {
-        val serialized = issue {
-            claim(RFC7519.ISSUER, "https://example.com/issuer")
-            claim(SdJwtVcSpec.VCT, "urn:eudi:ehic:1")
-            objClaim(TokenStatusListSpec.STATUS) {
-                objClaim(TokenStatusListSpec.STATUS_LIST) {
-                    claim(TokenStatusListSpec.INDEX, 4)
-                    claim(TokenStatusListSpec.URI, "https://example.com/status_list/10")
-                }
-            }
-        }
-        val checkStatus = CheckWithTokenStatusList { uri, index ->
-            assertEquals("https://example.com/status_list/10", uri)
-            assertEquals(4u, index)
-            error("resolution failed")
-        }
-        val verifier = NimbusSdJwtOps.SdJwtVcVerifier(
-            issuerVerificationMethod = IssuerVerificationMethod.usingCustom(ECDSAVerifier(issuerKey).asJwtVerifier()),
-            TypeMetadataPolicy.NotUsed,
-            checkStatus,
-        )
-        val exception = assertFailsWith<SdJwtVerificationException> { verifier.verify(serialized).getOrThrow() }
-        val error = assertIs<VerificationError.SdJwtVcError>(exception.reason)
-        val reason = assertIs<SdJwtVcVerificationError.StatusVerificationError.StatusCheckFailure>(error.error)
-        assertIs<IllegalStateException>(reason.cause)
-        assertEquals("resolution failed", reason.cause.message)
-    }
-
-    @Test
-    fun `when status is non-valid, verification fails`() = runTest {
-        val serialized = issue {
-            claim(RFC7519.ISSUER, "https://example.com/issuer")
-            claim(SdJwtVcSpec.VCT, "urn:eudi:ehic:1")
-            objClaim(TokenStatusListSpec.STATUS) {
-                objClaim(TokenStatusListSpec.STATUS_LIST) {
-                    claim(TokenStatusListSpec.INDEX, 4)
-                    claim(TokenStatusListSpec.URI, "https://example.com/status_list/10")
-                }
-            }
-        }
-        val checkStatus = CheckWithTokenStatusList { uri, index ->
-            assertEquals("https://example.com/status_list/10", uri)
-            assertEquals(4u, index)
-            Status.NonValid(0x01u, "revoked")
-        }
-        val verifier = NimbusSdJwtOps.SdJwtVcVerifier(
-            issuerVerificationMethod = IssuerVerificationMethod.usingCustom(ECDSAVerifier(issuerKey).asJwtVerifier()),
-            TypeMetadataPolicy.NotUsed,
-            checkStatus,
-        )
-        val exception = assertFailsWith<SdJwtVerificationException> { verifier.verify(serialized).getOrThrow() }
-        val error = assertIs<VerificationError.SdJwtVcError>(exception.reason)
-        val reason = assertIs<SdJwtVcVerificationError.StatusVerificationError.NonValidStatus>(error.error)
-        assertEquals(0x01u, reason.status.status)
-        assertEquals("revoked", reason.status.explanation)
-    }
-
-    @Test
-    fun `when status is valid, verification succeeds`() = runTest {
-        val serialized = issue {
-            claim(RFC7519.ISSUER, "https://example.com/issuer")
-            claim(SdJwtVcSpec.VCT, "urn:eudi:ehic:1")
-            objClaim(TokenStatusListSpec.STATUS) {
-                objClaim(TokenStatusListSpec.STATUS_LIST) {
-                    claim(TokenStatusListSpec.INDEX, 4)
-                    claim(TokenStatusListSpec.URI, "https://example.com/status_list/10")
-                }
-            }
-        }
-        val checkStatus = CheckWithTokenStatusList { uri, index ->
-            assertEquals("https://example.com/status_list/10", uri)
-            assertEquals(4u, index)
-            Status.Valid
-        }
-        val verifier = NimbusSdJwtOps.SdJwtVcVerifier(
-            issuerVerificationMethod = IssuerVerificationMethod.usingCustom(ECDSAVerifier(issuerKey).asJwtVerifier()),
-            TypeMetadataPolicy.NotUsed,
-            checkStatus,
-        )
-        verifier.verify(serialized).getOrThrow()
-    }
 }
+
+private object JsonSchemaConverter {
+    private val config: SchemaValidatorsConfig by lazy {
+        SchemaValidatorsConfig.Builder()
+            .regularExpressionFactory(JoniRegularExpressionFactory.getInstance())
+            .formatAssertionsEnabled(true)
+            .build()
+    }
+    private val factory: JsonSchemaFactory by lazy {
+        JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012) { factoryBuilder ->
+            factoryBuilder.schemaLoaders { schemaLoadersBuilder ->
+                schemaLoadersBuilder.add {
+                    fail("SchemaLoader should not have been invoked. Schema URI: $it")
+                }
+            }
+            factoryBuilder.enableSchemaCache(true)
+        }
+    }
+
+    suspend fun convert(schema: JsonSchema): ExternalJsonSchema =
+        withContext(Dispatchers.IO) {
+            val externalJsonSchema = factory.getSchema(Json.encodeToString(schema), InputFormat.JSON, config)
+            assertEquals(SpecVersion.VersionFlag.V202012.id, externalJsonSchema.getRefSchemaNode("/\$schema").textValue())
+            externalJsonSchema
+        }
+}
+
+private fun ExternalJsonSchema.validate(unvalidated: JsonObject): List<JsonSchemaViolation> =
+    validate(Json.encodeToString(unvalidated), InputFormat.JSON) { context ->
+        context.executionConfig.formatAssertionsEnabled = true
+    }.mapNotNull { JsonSchemaViolation(it.toString()) }

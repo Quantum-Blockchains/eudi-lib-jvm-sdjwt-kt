@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -268,13 +268,13 @@ private val collectDigests: DeepRecursiveFunction<JsonObject, List<DisclosureDig
     DeepRecursiveFunction { claims ->
         claims.flatMap { (attribute, json) ->
             when {
-                attribute == RFC9901.CLAIM_SD && json is JsonArray ->
+                attribute == SdJwtSpec.CLAIM_SD && json is JsonArray ->
                     json.mapNotNull { element ->
                         if (element is JsonPrimitive) DisclosureDigest.wrap(element.content).getOrNull()
                         else null
                     }
 
-                attribute == RFC9901.CLAIM_ARRAY_ELEMENT_DIGEST && json is JsonPrimitive ->
+                attribute == SdJwtSpec.CLAIM_ARRAY_ELEMENT_DIGEST && json is JsonPrimitive ->
                     DisclosureDigest.wrap(json.content).getOrNull()
                         ?.let { listOf(it) }
                         ?: emptyList()

@@ -153,7 +153,8 @@ The `fold` operation allows you to traverse and accumulate values from disclosab
 val disclosedClaimNames = sdJwtSpec.fold(
     objectHandlers = customObjectHandlers,
     arrayHandlers = customArrayHandlers,
-    combine = { acc, current -> acc + current },
+    initial = emptySet<String>(),
+    combine = { acc, current -> acc + current }
 )
 ```
 

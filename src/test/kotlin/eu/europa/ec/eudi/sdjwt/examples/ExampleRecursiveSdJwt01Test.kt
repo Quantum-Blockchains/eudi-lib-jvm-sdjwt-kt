@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,6 @@ class ExampleRecursiveSdJwt01Test {
 
     @Test
     fun testExampleRecursiveSdJwt01() {
-        recursiveSdJwt.assertThat("Example: SD-JWT with Recursive Disclosures", 5)
+        recursiveSdJwt.assertThat("Example 3: Recursive SD-JWT", 5)
     }
 }

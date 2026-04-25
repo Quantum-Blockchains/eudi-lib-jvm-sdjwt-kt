@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import com.nimbusds.jose.crypto.*
 import com.nimbusds.jose.jwk.Curve
 import com.nimbusds.jose.jwk.JWK
 import com.nimbusds.jose.jwk.gen.ECKeyGenerator
+import com.nimbusds.jose.jwk.gen.MLDSAKeyGenerator
 import com.nimbusds.jose.jwk.gen.OctetKeyPairGenerator
 import com.nimbusds.jose.jwk.gen.OctetSequenceKeyGenerator
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
@@ -87,6 +88,24 @@ private fun createContext(algorithm: JWSAlgorithm): Context = with(NimbusSdJwtOp
     val issuedAt = Date(Clock.System.now().toEpochMilliseconds())
 
     when (algorithm) {
+        in JWSAlgorithm.Family.ML_DSA -> {
+            val provider = BouncyCastleProvider()
+            val jwk = MLDSAKeyGenerator(algorithm)
+                .provider(provider)
+                .keyID(keyId)
+                .issueTime(issuedAt)
+                .generate()
+            val signer = MLDSASigner(jwk).apply { jcaContext.provider = provider }
+            val verifier = MLDSAVerifier(jwk.toPublicJWK())
+                .apply { jcaContext.provider = provider }
+                .asJwtVerifier()
+            Context(
+                jwk,
+                NimbusSdJwtOps.issuer(signer = signer, signAlgorithm = algorithm),
+                verifier,
+            )
+        }
+
         in JWSAlgorithm.Family.EC -> {
             val curve = when (algorithm) {
                 JWSAlgorithm.ES256 -> Curve.P_256

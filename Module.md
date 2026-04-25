@@ -3,7 +3,7 @@
 `eudi-lib-jvm-sdjwt-kt` offers a DSL (domain-specific language) for defining how a set of claims should be made selectively
 disclosable.
 
-Library implements [RFC 9901](https://www.rfc-editor.org/rfc/rfc9901.html)
+Library implements [SD-JWT draft 12](https://www.ietf.org/archive/id/draft-ietf-oauth-selective-disclosure-jwt-12.html)
 is implemented in Kotlin, targeting JVM.
 
 Library's SD-JWT DSL leverages the DSL provided by
@@ -70,7 +70,7 @@ val issuedSdJwt: String = runBlocking {
 val verifiedIssuanceSdJwt: SdJwt<SignedJWT> = runBlocking {
     with(NimbusSdJwtOps) {
         val jwtSignatureVerifier = RSASSAVerifier(issuerRsaKeyPair).asJwtVerifier()
-        val unverifiedIssuanceSdJwt = serializedUnverifiedIssuanceSdJwt
+        val unverifiedIssuanceSdJwt = loadSdJwt("/exampleIssuanceSdJwt.txt")
         verify(jwtSignatureVerifier, unverifiedIssuanceSdJwt).getOrThrow()
     }
 }
@@ -81,7 +81,7 @@ val verifiedIssuanceSdJwt: SdJwt<SignedJWT> = runBlocking {
 In this case, a `Holder` of an SD-JWT issued by an `Issuer`, wants to create a presentation for a `Verifier`.
 The `Holder` should know which of the selectively disclosed claims to include in the presentation.
 The selectively disclosed claims to include in the presentation are expressed using Claim Paths as per
-[SD-JWT VC draft 13](https://www.ietf.org/archive/id/draft-ietf-oauth-sd-jwt-vc-13.html#name-claim-path).
+[SD-JWT VC draft 11](https://www.ietf.org/archive/id/draft-ietf-oauth-sd-jwt-vc-11.html#name-claim-path).
 
 ```kotlin
 val presentationSdJwt: SdJwt<SignedJWT> = runBlocking {
@@ -134,7 +134,7 @@ the Holder used to sign the `Key Binding JWT`
 val verifiedPresentationSdJwt: SdJwt<SignedJWT> = runBlocking {
     with(NimbusSdJwtOps) {
         val jwtSignatureVerifier = RSASSAVerifier(issuerRsaKeyPair).asJwtVerifier()
-        val unverifiedPresentationSdJwt = serializedUnverifiedPresentationSdJwt
+        val unverifiedPresentationSdJwt = loadSdJwt("/examplePresentationSdJwt.txt")
         verify(
             jwtSignatureVerifier,
             unverifiedPresentationSdJwt,

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -162,7 +162,6 @@ class SdJwtVcIssuanceTest {
             },
         ),
         TypeMetadataPolicy.NotUsed,
-        null,
     )
 
     @Test
@@ -249,12 +248,7 @@ class SdJwtVcIssuanceTest {
                 EOtnT09YNGp9nZbETjor3nCzM0J0MvQ
             """.trimIndent().removeNewLine()
 
-        val challenge = ChallengePredicate(
-            issuedAt = Instant.fromEpochSeconds(1731530704L),
-            audience = "https://example.com/verifier",
-            nonce = "1234567890",
-        )
-        val (sdJwt, kbJwtAndClaims) = sdJwtVcVerifier.verify(unverified, challenge).getOrThrow()
+        val (sdJwt, kbJwtAndClaims) = sdJwtVcVerifier.verify(unverified, null).getOrThrow()
         val (kbJwt, kbJwtClaims) = assertNotNull(kbJwtAndClaims)
 
         println(json.encodeToString(JsonObject(kbJwtClaims)))

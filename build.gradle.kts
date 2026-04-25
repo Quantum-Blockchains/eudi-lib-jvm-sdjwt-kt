@@ -1,10 +1,12 @@
-import com.vanniktech.maven.publish.JavadocJar
-import com.vanniktech.maven.publish.KotlinJvm
-import org.jetbrains.dokka.gradle.engine.parameters.VisibilityModifier
+import org.jetbrains.dokka.DokkaConfiguration
+import org.jetbrains.dokka.gradle.DokkaTask
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
+import org.owasp.dependencycheck.gradle.extension.DependencyCheckExtension
 import java.net.URI
 
 plugins {
+    base
+    `java-library`
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.plugin.serialization)
     alias(libs.plugins.spotless)
@@ -22,7 +24,8 @@ repositories {
 
 dependencies {
     api(libs.kotlinx.serialization.json)
-    api(libs.nimbus.jose.jwt)
+    // api(libs.nimbus.jose.jwt)
+    api(files("libs/nimbus-jose-jwt-10.3.2-PQC.jar"))
     implementation(libs.kotlinx.coroutines.core)
     api(libs.ktor.client.core)
     testImplementation(libs.ktor.client.content.negotiation)
@@ -48,6 +51,8 @@ dependencies {
     testImplementation(libs.bouncy.castle) {
         because("To generate self-signed X509 Certificates")
     }
+    testImplementation(libs.json.schema.validator)
+    testImplementation(libs.joni)
 }
 
 java {
@@ -58,7 +63,7 @@ kotlin {
     jvmToolchain {
         languageVersion = JavaLanguageVersion.of(libs.versions.java.get())
         compilerOptions {
-            apiVersion = KotlinVersion.DEFAULT
+            apiVersion = KotlinVersion.KOTLIN_2_1
             optIn = listOf(
                 "kotlin.io.encoding.ExperimentalEncodingApi",
                 "kotlin.contracts.ExperimentalContracts",
@@ -92,8 +97,12 @@ spotless {
     }
 }
 
-tasks.test {
-    useJUnitPlatform()
+testing {
+    suites {
+        val test by getting(JvmTestSuite::class) {
+            useJUnitJupiter()
+        }
+    }
 }
 
 tasks.jar {
@@ -110,35 +119,36 @@ tasks.jar {
 object Meta {
     const val BASE_URL = "https://github.com/eu-digital-identity-wallet/eudi-lib-jvm-sdjwt-kt"
 }
+tasks.withType<DokkaTask>().configureEach {
+    dokkaSourceSets {
+        named("main") {
+            // used as project name in the header
+            moduleName.set("EUDI SD-JWT")
 
-//
-// Configuration of Dokka engine
-//
-dokka {
-    // used as project name in the header
-    moduleName = "EUDI SD-JWT"
+            // contains descriptions for the module and the packages
+            includes.from("Module.md")
 
-    dokkaSourceSets.main {
-        // contains descriptions for the module and the packages
-        includes.from("Module.md")
+            documentedVisibilities.set(
+                setOf(
+                    DokkaConfiguration.Visibility.PUBLIC,
+                    DokkaConfiguration.Visibility.PROTECTED,
+                ),
+            )
 
-        documentedVisibilities = setOf(VisibilityModifier.Public, VisibilityModifier.Protected)
-
-        val remoteSourceUrl = System.getenv()["GIT_REF_NAME"]?.let { URI.create("${Meta.BASE_URL}/tree/$it/src") }
-        remoteSourceUrl
-            ?.let {
-                sourceLink {
-                    localDirectory = projectDir.resolve("src")
-                    remoteUrl = it
-                    remoteLineSuffix = "#L"
+            val remoteSourceUrl = System.getenv()["GIT_REF_NAME"]?.let { URI.create("${Meta.BASE_URL}/tree/$it/src").toURL() }
+            remoteSourceUrl
+                ?.let {
+                    sourceLink {
+                        localDirectory.set(projectDir.resolve("src"))
+                        remoteUrl.set(it)
+                        remoteLineSuffix.set("#L")
+                    }
                 }
-            }
+        }
     }
 }
 
 mavenPublishing {
-    configure(KotlinJvm(javadocJar = JavadocJar.Dokka(tasks.dokkaGeneratePublicationHtml), sourcesJar = true))
-
     pom {
         ciManagement {
             system = "github"
@@ -147,10 +157,9 @@ mavenPublishing {
     }
 }
 
-dependencyCheck {
+val nvdApiKey: String? = System.getenv("NVD_API_KEY") ?: properties["nvdApiKey"]?.toString()
+val dependencyCheckExtension = extensions.findByType(DependencyCheckExtension::class.java)
+dependencyCheckExtension?.apply {
     formats = mutableListOf("XML", "HTML")
-
-    nvd {
-        apiKey = System.getenv("NVD_API_KEY") ?: properties["nvdApiKey"]?.toString() ?: ""
-    }
+    nvd.apiKey = nvdApiKey ?: ""
 }

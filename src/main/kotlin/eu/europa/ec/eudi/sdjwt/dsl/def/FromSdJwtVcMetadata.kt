@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -48,6 +48,7 @@ fun SdJwtDefinition.Companion.fromSdJwtVcMetadata(
                 name = sdJwtVcMetadata.name,
                 description = sdJwtVcMetadata.description,
                 display = sdJwtVcMetadata.display,
+                schemas = sdJwtVcMetadata.schemas,
             )
         SdJwtDefinition(content, vctMetadata)
     }

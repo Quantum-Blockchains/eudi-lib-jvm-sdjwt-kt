@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,7 +26,6 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import java.security.cert.X509Certificate
 import java.text.ParseException
-import kotlin.time.Clock
 import com.nimbusds.jose.JOSEException as NimbusJOSEException
 import com.nimbusds.jose.JOSEObjectType as NimbusJOSEObjectType
 import com.nimbusds.jose.JWSAlgorithm as NimbusJWSAlgorithm
@@ -37,6 +36,7 @@ import com.nimbusds.jose.JWSVerifier as NimbusJWSVerifier
 import com.nimbusds.jose.crypto.ECDSAVerifier as NimbusECDSAVerifier
 import com.nimbusds.jose.crypto.Ed25519Verifier as NimbusEd25519Verifier
 import com.nimbusds.jose.crypto.MACVerifier as NimbusMACVerifier
+import com.nimbusds.jose.crypto.MLDSAVerifier as NimbusMLDSAVerifier
 import com.nimbusds.jose.crypto.RSASSAVerifier as NimbusRSASSAVerifier
 import com.nimbusds.jose.jwk.AsymmetricJWK as NimbusAsymmetricJWK
 import com.nimbusds.jose.jwk.ECKey as NimbusECKey
@@ -44,6 +44,7 @@ import com.nimbusds.jose.jwk.JWK as NimbusJWK
 import com.nimbusds.jose.jwk.JWKMatcher as NimbusJWKMatcher
 import com.nimbusds.jose.jwk.JWKSelector as NimbusJWKSelector
 import com.nimbusds.jose.jwk.JWKSet as NimbusJWKSet
+import com.nimbusds.jose.jwk.MLDSAKey as NimbusMLDSAKey
 import com.nimbusds.jose.jwk.OctetKeyPair as NimbusOctetKeyPair
 import com.nimbusds.jose.jwk.OctetSequenceKey as NimbusOctetSequenceKey
 import com.nimbusds.jose.jwk.RSAKey as NimbusRSAKey
@@ -90,7 +91,7 @@ internal fun <PubKey> keyBindingJWTProcess(
         NimbusDefaultJOSEObjectTypeVerifier(NimbusJOSEObjectType("kb+jwt")),
         NimbusDefaultJWTClaimsVerifier(
             challenge ?: NimbusJWTClaimsSet.Builder().build(),
-            setOf(RFC7519.ISSUED_AT, RFC7519.AUDIENCE, RFC9901.CLAIM_NONCE, RFC9901.CLAIM_SD_HASH),
+            setOf(RFC7519.AUDIENCE, RFC7519.ISSUED_AT, "nonce"),
         ),
         NimbusImmutableJWKSet(NimbusJWKSet(listOf(holderPubKey))),
         true,
@@ -168,16 +169,17 @@ object NimbusSdJwtOps :
 
      * @param challenge an optional challenge provided by the verifier, to be signed by the holder as the Key-binding JWT.
      * If provided, Key Binding JWT payload should contain the challenge as is.
-
+     *
      * @see keyBindingJWTProcess
      */
     fun KeyBindingVerifier.Companion.mustBePresentAndValid(
         holderPubKeyExtractor: (JsonObject) -> NimbusAsymmetricJWK? = HolderPubKeyInConfirmationClaim,
-        challenge: JsonObject?,
+        challenge: JsonObject? = null,
     ): KeyBindingVerifier.MustBePresentAndValid<NimbusSignedJWT> {
         val keyBindingVerifierProvider: (JsonObject) -> JwtSignatureVerifier<NimbusSignedJWT> = { sdJwtClaims ->
             val holderPublicKey = holderPubKeyExtractor(sdJwtClaims) ?: throw KeyBindingError.MissingHolderPublicKey.asException()
             if (holderPublicKey !is NimbusJWK) throw KeyBindingError.UnsupportedHolderPublicKey.asException()
+
             val challengeClaimSet: NimbusJWTClaimsSet? = challenge?.let { NimbusJWTClaimsSet.parse(Json.encodeToString(it)) }
             keyBindingJWTProcess(holderPublicKey, challengeClaimSet).asJwtVerifier()
         }
@@ -275,7 +277,7 @@ object NimbusSdJwtOps :
         withContext(Dispatchers.IO) {
             runCatchingCancellable {
                 val header = NimbusJWSHeader.Builder(signAlgorithm).apply {
-                    type(NimbusJOSEObjectType(RFC9901.MEDIA_SUBTYPE_KB_JWT))
+                    type(NimbusJOSEObjectType(SdJwtSpec.MEDIA_SUBTYPE_KB_JWT))
                     val pk = publicKey
                     if (pk is NimbusJWK) {
                         keyID(pk.keyID)
@@ -283,7 +285,7 @@ object NimbusSdJwtOps :
                 }.build()
                 val claimSet = NimbusJWTClaimsSet.Builder().apply {
                     claimSetBuilderAction()
-                    claim(RFC9901.CLAIM_SD_HASH, sdJwtDigest.value)
+                    claim(SdJwtSpec.CLAIM_SD_HASH, sdJwtDigest.value)
                 }.build()
 
                 NimbusSignedJWT(header, claimSet).apply { sign(signer) }.serialize()
@@ -303,7 +305,7 @@ private val NimbusSerializationOps: SdJwtSerializationOps<NimbusSignedJWT> =
             jwt.serialize()
         },
         hashAlgorithm = { jwt ->
-            jwt.jwtClaimsSet.getStringClaim(RFC9901.CLAIM_SD_ALG)?.let {
+            jwt.jwtClaimsSet.getStringClaim(SdJwtSpec.CLAIM_SD_ALG)?.let {
                 checkNotNull(HashAlgorithm.fromString(it)) { "Unknown hash algorithm $it" }
             }
         },
@@ -311,7 +313,7 @@ private val NimbusSerializationOps: SdJwtSerializationOps<NimbusSignedJWT> =
 
 private val NimbusPresentationOps: SdJwtPresentationOps<NimbusSignedJWT> = SdJwtPresentationOps { jwt -> jwt.jwtClaimsSet.jsonObject() }
 
-private val NimbusVerifier: SdJwtVerifier<NimbusSignedJWT> = SdJwtVerifier(Clock.System, null) { jwt -> jwt.jwtClaimsSet.jsonObject() }
+private val NimbusVerifier: SdJwtVerifier<NimbusSignedJWT> = SdJwtVerifier { jwt -> jwt.jwtClaimsSet.jsonObject() }
 
 /**
  * Creates a function that given some claims signs them producing a [NimbusSignedJWT]
@@ -407,6 +409,7 @@ internal open class JwkSourceJWTProcessor<C : NimbusSecurityContext>(
                 in NimbusJWSAlgorithm.Family.RSA -> NimbusRSASSAVerifier(jwk.expectIs<NimbusRSAKey>())
                 in NimbusJWSAlgorithm.Family.EC -> NimbusECDSAVerifier(jwk.expectIs<NimbusECKey>())
                 in NimbusJWSAlgorithm.Family.ED -> NimbusEd25519Verifier(jwk.expectIs<NimbusOctetKeyPair>())
+                in NimbusJWSAlgorithm.Family.ML_DSA -> NimbusMLDSAVerifier(jwk.expectIs<NimbusMLDSAKey>())
                 else -> throw NimbusBadJOSEException("Unsupported JWS algorithm $algorithm")
             }
 

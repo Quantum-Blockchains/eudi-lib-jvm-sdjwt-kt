@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,6 @@ class ExampleHandlingStructuredClaims01Test {
 
     @Test
     fun testExampleHandlingStructuredClaims01() {
-        handlingStructuredClaims.assertThat("Appendix A.1 - Handling Structured Claims", 10)
+        handlingStructuredClaims.assertThat("Appendix 1 - Example 2: Handling Structured Claims", 10)
     }
 }

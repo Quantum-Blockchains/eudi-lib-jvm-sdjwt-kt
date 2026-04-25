@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ import kotlinx.coroutines.*
 val verifiedPresentationSdJwt: SdJwt<SignedJWT> = runBlocking {
     with(NimbusSdJwtOps) {
         val jwtSignatureVerifier = RSASSAVerifier(issuerRsaKeyPair).asJwtVerifier()
-        val unverifiedPresentationSdJwt = serializedUnverifiedPresentationSdJwt
+        val unverifiedPresentationSdJwt = loadSdJwt("/examplePresentationSdJwt.txt")
         verify(
             jwtSignatureVerifier,
             unverifiedPresentationSdJwt,

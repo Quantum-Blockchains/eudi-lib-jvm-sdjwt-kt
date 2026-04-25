@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,6 @@ class ExampleSdJwtVcDataV201Test {
 
     @Test
     fun testExampleSdJwtVcDataV01() {
-        sdJwtVcDataV2.assertThat("Appendix A.4 - W3C Verifiable Credentials Data Model v2.0", 14)
+        sdJwtVcDataV2.assertThat("Appendix 4 - Example 4b: W3C Verifiable Credentials Data Model v2.0", 14)
     }
 }

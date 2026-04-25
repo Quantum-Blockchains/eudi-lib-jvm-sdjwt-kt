@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@ package eu.europa.ec.eudi.sdjwt
 
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
-import kotlin.time.Clock
 
 object DefaultSdJwtOps :
     SdJwtVerifier<JwtAndClaims> by DefaultVerifier,
@@ -38,14 +37,14 @@ object DefaultSdJwtOps :
 private val DefaultSerializationOps = SdJwtSerializationOps<JwtAndClaims>(
     serializeJwt = { (jwt, _) -> jwt },
     hashAlgorithm = { (_, claims) ->
-        claims[RFC9901.CLAIM_SD_ALG]?.jsonPrimitive?.contentOrNull
+        claims[SdJwtSpec.CLAIM_SD_ALG]?.jsonPrimitive?.contentOrNull
             ?.let { checkNotNull(HashAlgorithm.fromString(it)) { "Unknown hash algorithm $it" } }
     },
 )
 
 private val DefaultPresentationOps = SdJwtPresentationOps<JwtAndClaims> { (_, claims) -> claims }
 
-private val DefaultVerifier: SdJwtVerifier<JwtAndClaims> = SdJwtVerifier(Clock.System, null) { (_, claims) -> claims }
+private val DefaultVerifier: SdJwtVerifier<JwtAndClaims> = SdJwtVerifier { (_, claims) -> claims }
 
 /**
  * A method for obtaining an [SdJwt] given an unverified SdJwt, without checking the signature

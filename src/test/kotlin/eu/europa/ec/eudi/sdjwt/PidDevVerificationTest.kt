@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -53,7 +53,6 @@ class PidDevVerificationTest :
                 x509CertificateTrust = { _, _ -> true },
             ),
             TypeMetadataPolicy.NotUsed,
-            null,
         )
 
         val issuedSdJwt = try {

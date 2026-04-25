@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,6 @@ class ExampleStructuredSdJwt01Test {
 
     @Test
     fun testExampleStructuredSdJwt01() {
-        structuredSdJwt.assertThat("Example: Structured SD-JWT", 4)
+        structuredSdJwt.assertThat("Example 2: Structured SD-JWT", 4)
     }
 }

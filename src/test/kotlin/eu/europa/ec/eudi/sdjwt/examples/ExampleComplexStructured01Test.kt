@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,6 @@ class ExampleComplexStructured01Test {
 
     @Test
     fun testExampleComplexStructured01() {
-        complexStructuredSdJwt.assertThat("Appendix A.2 - Complex Structured SD-JWT", 16)
+        complexStructuredSdJwt.assertThat("Appendix 2 - Example 3: Complex Structured SD-JWT", 16)
     }
 }

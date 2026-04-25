@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -102,7 +102,7 @@ private class RecreateClaims(private val visitor: ClaimVisitor?) {
         val hashAlgorithm = jwtClaims.hashAlgorithm()
         return discloseJwt(
             hashAlgorithm,
-            JsonObject(jwtClaims - RFC9901.CLAIM_SD_ALG),
+            JsonObject(jwtClaims - SdJwtSpec.CLAIM_SD_ALG),
             disclosures,
         )
     }
@@ -219,7 +219,7 @@ private class DiscloseObject(
 
             disclosuresPerDigest.remove(digest)?.let { disclosure ->
                 check(disclosure is Disclosure.ObjectProperty) {
-                    "Found array element disclosure ${disclosure.value} within ${RFC9901.CLAIM_SD} claim"
+                    "Found array element disclosure ${disclosure.value} within ${SdJwtSpec.CLAIM_SD} claim"
                 }
                 val (name, value) = disclosure.claim()
                 require(!jsonObject.containsKey(name)) {
@@ -236,7 +236,7 @@ private class DiscloseObject(
         jsonObject.directDigests().forEach { replace(it) }
 
         // Remove _sd claim, if present
-        resultingClaims.remove(RFC9901.CLAIM_SD)
+        resultingClaims.remove(SdJwtSpec.CLAIM_SD)
 
         return JsonObject(resultingClaims)
     }
@@ -325,7 +325,7 @@ private sealed interface DisclosedArrayElement {
 
         private fun arrayElementDigest(obj: JsonObject): DisclosureDigest? =
             if (obj.size == 1)
-                obj[RFC9901.CLAIM_ARRAY_ELEMENT_DIGEST]
+                obj[SdJwtSpec.CLAIM_ARRAY_ELEMENT_DIGEST]
                     ?.takeIf { element -> element is JsonPrimitive }
                     ?.let { DisclosureDigest.wrap(it.jsonPrimitive.content).getOrNull() }
             else null
@@ -341,10 +341,11 @@ private sealed interface DisclosedArrayElement {
  *  @receiver the claims to check
  *  @return the digests found. Method may raise an exception in case the digests cannot be base64 decoded
  */
-internal fun JsonObject.directDigests(): List<DisclosureDigest> =
-    this[RFC9901.CLAIM_SD]?.jsonArray
+internal fun JsonObject.directDigests(): Set<DisclosureDigest> =
+    this[SdJwtSpec.CLAIM_SD]?.jsonArray
         ?.map { DisclosureDigest.wrap(it.jsonPrimitive.content).getOrThrow() }
-        ?: emptyList()
+        ?.toSet()
+        ?: emptySet()
 
 /**
  * Looks in the provided claims for the hashing algorithm
@@ -355,8 +356,8 @@ internal fun JsonObject.directDigests(): List<DisclosureDigest> =
  * @receiver the claims in the JWT part of the SD-jWT
  */
 internal fun JsonObject.hashAlgorithm(): HashAlgorithm {
-    val element = get(RFC9901.CLAIM_SD_ALG) ?: JsonPrimitive(RFC9901.DEFAULT_SD_ALG)
+    val element = get(SdJwtSpec.CLAIM_SD_ALG) ?: JsonPrimitive(SdJwtSpec.DEFAULT_SD_ALG)
     return if (element is JsonPrimitive && element.isString) {
         HashAlgorithm.fromString(element.content) ?: throw UnsupportedHashingAlgorithm(element.content).asException()
-    } else throw InvalidJwt("'${RFC9901.CLAIM_SD_ALG}' claim is not a string").asException()
+    } else throw InvalidJwt("'${SdJwtSpec.CLAIM_SD_ALG}' claim is not a string").asException()
 }

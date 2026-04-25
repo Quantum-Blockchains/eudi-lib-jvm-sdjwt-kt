@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -159,7 +159,6 @@ class SdJwtVcVerifierTest {
         val verifier = DefaultSdJwtOps.SdJwtVcVerifier(
             IssuerVerificationMethod.usingIssuerMetadata(HttpMock.clientReturning(SampleIssuer.issuerMeta)),
             TypeMetadataPolicy.NotUsed,
-            null,
         )
         verifier.verify(unverifiedSdJwt).getOrThrow()
     }
@@ -170,7 +169,6 @@ class SdJwtVcVerifierTest {
         val verifier = DefaultSdJwtOps.SdJwtVcVerifier(
             IssuerVerificationMethod.usingIssuerMetadata(HttpMock.clientReturning(SampleIssuer.issuerMeta)),
             TypeMetadataPolicy.NotUsed,
-            null,
         )
         verifier.verify(unverifiedSdJwt).getOrThrow()
     }
@@ -182,7 +180,6 @@ class SdJwtVcVerifierTest {
         val verifier = DefaultSdJwtOps.SdJwtVcVerifier(
             IssuerVerificationMethod.usingIssuerMetadata(HttpMock.clientReturning(SampleIssuer.issuerMeta)),
             TypeMetadataPolicy.NotUsed,
-            null,
         )
         try {
             verifier.verify(unverifiedSdJwt).getOrThrow()
@@ -243,7 +240,6 @@ class SdJwtVcVerifierTest {
             val verifier = DefaultSdJwtOps.SdJwtVcVerifier(
                 IssuerVerificationMethod.usingIssuerMetadata(httpClient),
                 TypeMetadataPolicy.NotUsed,
-                null,
             )
 
             val serialized = with(NimbusSdJwtOps) { sdJwt.serialize() }
@@ -301,7 +297,6 @@ class SdJwtVcVerifierTest {
             NimbusSdJwtOps.SdJwtVcVerifier(
                 IssuerVerificationMethod.usingX5c(x509CertificateTrust),
                 TypeMetadataPolicy.NotUsed,
-                null,
             )
         }
 

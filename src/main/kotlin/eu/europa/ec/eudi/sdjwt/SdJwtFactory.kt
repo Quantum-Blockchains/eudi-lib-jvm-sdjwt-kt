@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -79,11 +79,11 @@ private operator fun Disclosed.plus(that: Disclosed): Disclosed {
     // Merge JSON objects
     val mergedJson = JsonObject(this.result.jsonObject + that.result.jsonObject)
     // Merge SD claims if present in both objects
-    val accSdClaims = this.result.jsonObject[RFC9901.CLAIM_SD]?.jsonArray ?: JsonArray(emptyList())
-    val currentSdClaims = that.result.jsonObject[RFC9901.CLAIM_SD]?.jsonArray ?: JsonArray(emptyList())
+    val accSdClaims = this.result.jsonObject[SdJwtSpec.CLAIM_SD]?.jsonArray ?: JsonArray(emptyList<JsonElement>())
+    val currentSdClaims = that.result.jsonObject[SdJwtSpec.CLAIM_SD]?.jsonArray ?: JsonArray(emptyList())
     val mergedResult = if (accSdClaims.isNotEmpty() || currentSdClaims.isNotEmpty()) {
         val mergedSdClaims = JsonArray(accSdClaims + currentSdClaims)
-        JsonObject(mergedJson + (RFC9901.CLAIM_SD to mergedSdClaims))
+        JsonObject(mergedJson + (SdJwtSpec.CLAIM_SD to mergedSdClaims))
     } else {
         mergedJson
     }
@@ -109,38 +109,12 @@ data class UnsignedSdJwt(val jwtPayload: JsonObject, val disclosures: List<Discl
  * this [SdJwtObject]. If not provided, decoys will be added only if there is a hint at [SdJwtObject] level.
  */
 @Suppress("ktlint:standard:max-line-length")
-class SdJwtFactory internal constructor(
-    private val hashAlgorithm: HashAlgorithm,
-    private val saltProvider: SaltProvider,
-    private val decoyGen: DecoyGen,
-    private val fallbackMinimumDigests: MinimumDigests?,
+class SdJwtFactory(
+    private val hashAlgorithm: HashAlgorithm = HashAlgorithm.SHA_256,
+    private val saltProvider: SaltProvider = SaltProvider.Default,
+    private val decoyGen: DecoyGen = DecoyGen.Default,
+    private val fallbackMinimumDigests: MinimumDigests? = null,
 ) {
-
-    /**
-     * @param hashAlgorithm the algorithm to calculate the [DisclosureDigest]
-     *        Defaults to [HashAlgorithm.SHA_256]
-     * @param numOfBytesForSalt the number of bytes to generate for the salt.
-     *        It must be at least 16 bytes. Defaults to 16
-     * @param numOfBytesForDecoys the number of bytes to generate for decoys.
-     *        It must be at least 16 bytes. Defaults to 16
-     * @param fallbackMinimumDigests This is an optional hint, that expresses the number of digests on the immediate level
-     *   of every [SdJwtObject]. It will be taken into account if there is not an explicitly
-     *   defined [hint][SdJwtObject.minimumDigests] for
-     *   this [SdJwtObject]. If not provided, decoys will be added only if there is a hint at [SdJwtObject] level.
-     * @throws IllegalArgumentException if [numOfBytesForDecoys] and/or [numOfBytesForSalt] is less than 16 bytes
-     */
-    @Throws(IllegalArgumentException::class)
-    constructor(
-        hashAlgorithm: HashAlgorithm = HashAlgorithm.SHA_256,
-        numOfBytesForSalt: Int = SaltProvider.MINIMUM_SALT_LENGTH,
-        numOfBytesForDecoys: Int = DecoyGen.MINIMUM_BYTES,
-        fallbackMinimumDigests: MinimumDigests? = null,
-    ) : this(
-        hashAlgorithm,
-        SaltProvider.randomSaltProvider(numOfBytesForSalt),
-        DecoyGen.random(numOfBytesForDecoys),
-        fallbackMinimumDigests,
-    )
 
     /**
      * Creates an SD-JWT from the provided disclosable object specification.
@@ -153,7 +127,14 @@ class SdJwtFactory internal constructor(
         val disclosed = sdJwtObject.fold(
             objectHandlers = objectHandlers,
             arrayHandlers = arrayHandlers,
+            initial = Disclosed(
+                path = emptyList(),
+                result = JsonObject(emptyMap()),
+                metadata = Disclosures(disclosures = emptyList(), minimumDigests = sdJwtObject.minimumDigests),
+            ),
             combine = Disclosed::plus,
+            arrayResultWrapper = ::JsonArray,
+            arrayMetadataCombiner = Disclosures::combineArrayDisclosures,
             postProcess = ::addDecoyDigests,
         )
 
@@ -172,62 +153,32 @@ class SdJwtFactory internal constructor(
      * @return A new context with decoy digests added to the result
      */
     private fun addDecoyDigests(folded: Disclosed): Disclosed {
-        val minDigests = folded.metadata.minimumDigests ?: return folded
+        val foldedObj = folded.result.jsonObject // Ensure it's treated as an object for post-processing
+        val sdClaims = foldedObj[SdJwtSpec.CLAIM_SD]?.jsonArray ?: JsonArray(emptyList())
 
-        return when (val result = folded.result) {
-            is JsonObject -> {
-                val sdClaims = result[RFC9901.CLAIM_SD]?.jsonArray ?: JsonArray(emptyList())
-
-                // Add decoys if needed based on the minimum digest requirements
-                val digests = sdClaims.map { it.jsonPrimitive.content }
-                val decoys = genDecoys(digests.size, minDigests)
-                    .map { decoyDigest ->
-                        JsonPrimitive(decoyDigest.value)
-                    }
-
-                if (decoys.isNotEmpty()) {
-                    // Sort the combined list of digests and decoys to make the order unpredictable
-                    val digestsAndDecoys = (sdClaims + decoys).sortedBy { it.jsonPrimitive.contentOrNull }
-                    val foldedObjWithDecoys = JsonObject(result + (RFC9901.CLAIM_SD to JsonArray(digestsAndDecoys)))
-                    folded.copy(result = foldedObjWithDecoys)
-                } else {
-                    folded
-                }
-            }
-
-            is JsonArray -> {
-                val sdElements =
-                    result.filter { it is JsonObject && it.containsKey(RFC9901.CLAIM_ARRAY_ELEMENT_DIGEST) }
-
-                val decoys = genDecoys(sdElements.size, minDigests)
-                    .map { decoyDigest ->
-                        buildJsonObject { put(RFC9901.CLAIM_ARRAY_ELEMENT_DIGEST, decoyDigest.value) }
-                    }
-
-                if (decoys.isNotEmpty()) {
-                    val digestsAndDecoys = (result + decoys)
-                    folded.copy(result = JsonArray(digestsAndDecoys))
-                } else {
-                    folded
-                }
-            }
-
-            else -> folded
+        // No need to add decoys if there are no SD claims
+        if (sdClaims.isEmpty()) {
+            return folded
         }
+
+        // Add decoys if needed based on the minimum digest requirements
+        val digests = sdClaims.map { it.jsonPrimitive.content }
+        val decoys = genDecoys(digests.size, folded.metadata.minimumDigests).map { JsonPrimitive(it.value) }
+
+        // Sort the combined list of digests and decoys to make the order unpredictable
+        val digestsAndDecoys = (sdClaims + decoys).sortedBy { it.jsonPrimitive.contentOrNull }
+        val foldedObjWithDecoys = if (digestsAndDecoys.isNotEmpty()) {
+            JsonObject(foldedObj + (SdJwtSpec.CLAIM_SD to JsonArray(digestsAndDecoys)))
+        } else {
+            foldedObj
+        }
+
+        return folded.copy(result = foldedObjWithDecoys)
     }
 
     private val objectHandlers = object : ObjectFoldHandlers<String, JsonElement, Disclosures, JsonElement> {
         private fun disclosureDigestObj(digest: DisclosureDigest): JsonObject =
-            buildJsonObject { putJsonArray(RFC9901.CLAIM_SD) { add(digest.value) } }
-
-        override fun empty(path: List<String?>, obj: DisclosableObject<String, JsonElement>): Disclosed {
-            val minDigests = (obj as? SdJwtObject)?.minimumDigests ?: fallbackMinimumDigests
-            return Disclosed(
-                path = path,
-                result = JsonObject(emptyMap()),
-                metadata = Disclosures(disclosures = emptyList(), minimumDigests = minDigests),
-            )
-        }
+            buildJsonObject { putJsonArray(SdJwtSpec.CLAIM_SD) { add(digest.value) } }
 
         override fun ifId(
             path: List<String?>,
@@ -298,7 +249,7 @@ class SdJwtFactory internal constructor(
                         objectPropertyDisclosure(key to objJson)
                     }
 
-                    Disclosed(
+                    return Disclosed(
                         path = path,
                         metadata = Disclosures(foldedObject.metadata.disclosures + disclosure),
                         result = disclosureDigestObj(digest),
@@ -318,21 +269,7 @@ class SdJwtFactory internal constructor(
 
     private val arrayHandlers = object : ArrayFoldHandlers<String, JsonElement, Disclosures, JsonElement> {
         private fun disclosureDigestObj(digest: DisclosureDigest): JsonObject =
-            buildJsonObject { put(RFC9901.CLAIM_ARRAY_ELEMENT_DIGEST, digest.value) }
-
-        override fun empty(path: List<String?>, array: DisclosableArray<String, JsonElement>): Disclosed {
-            val minDigests = (array as? SdJwtArray)?.minimumDigests ?: fallbackMinimumDigests
-            return Disclosed(
-                path = path,
-                result = JsonArray(emptyList()),
-                metadata = Disclosures(disclosures = emptyList(), minimumDigests = minDigests),
-            )
-        }
-
-        override fun wrapResult(elements: List<JsonElement>): JsonElement = JsonArray(elements)
-
-        override fun combineMetadata(metadata: List<Disclosures>): Disclosures =
-            Disclosures.combineArrayDisclosures(metadata)
+            buildJsonObject { put("...", digest.value) }
 
         override fun ifId(
             path: List<String?>,
@@ -430,7 +367,7 @@ class SdJwtFactory internal constructor(
      */
     private fun addHashAlgClaim(jwtClaimSet: JsonObject, disclosures: List<Disclosure>): JsonObject {
         return if (disclosures.isEmpty()) jwtClaimSet
-        else JsonObject(jwtClaimSet + (RFC9901.CLAIM_SD_ALG to JsonPrimitive(hashAlgorithm.alias)))
+        else JsonObject(jwtClaimSet + (SdJwtSpec.CLAIM_SD_ALG to JsonPrimitive(hashAlgorithm.alias)))
     }
 
     /**
@@ -442,7 +379,7 @@ class SdJwtFactory internal constructor(
      * @param minimumDigests The minimum number of digests required
      * @return A set of decoy digests to add to the SD-JWT
      */
-    private fun genDecoys(disclosureDigests: Int, minimumDigests: MinimumDigests?): List<DisclosureDigest> {
+    private fun genDecoys(disclosureDigests: Int, minimumDigests: MinimumDigests?): Set<DisclosureDigest> {
         val min = (minimumDigests ?: fallbackMinimumDigests)?.value ?: 0
         val numOfDecoys = (min - disclosureDigests).coerceAtLeast(0)
         return decoyGen.gen(hashAlgorithm, numOfDecoys)

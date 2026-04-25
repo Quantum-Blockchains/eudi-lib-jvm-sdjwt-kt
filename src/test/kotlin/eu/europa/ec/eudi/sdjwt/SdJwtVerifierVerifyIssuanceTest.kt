@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,8 +24,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
-import kotlin.time.Clock
-import kotlin.time.Instant
 
 class SdJwtVerifierVerifyIssuanceTest {
 
@@ -68,10 +66,7 @@ class SdJwtVerifierVerifyIssuanceTest {
         unverifiedSdJwt: JsonObject,
     ) {
         val verification =
-            sdJwtVerifier.verify(
-                jwtSignatureVerifier = jwtSignatureVerifier,
-                unverifiedSdJwt = unverifiedSdJwt,
-            )
+            DefaultSdJwtOps.verify(jwtSignatureVerifier = jwtSignatureVerifier, unverifiedSdJwt = unverifiedSdJwt)
         assertTrue { verification.isSuccess }
     }
 
@@ -80,10 +75,7 @@ class SdJwtVerifierVerifyIssuanceTest {
         unverifiedSdJwt: String,
     ) {
         val verifiedSdJwt =
-            sdJwtVerifier.verify(
-                jwtSignatureVerifier = jwtSignatureVerifier,
-                unverifiedSdJwt = unverifiedSdJwt,
-            ).getOrThrow()
+            DefaultSdJwtOps.verify(jwtSignatureVerifier = jwtSignatureVerifier, unverifiedSdJwt = unverifiedSdJwt).getOrThrow()
 
         val sdJwtWithOutSigVerification =
             DefaultSdJwtOps.unverifiedIssuanceFrom(unverifiedSdJwt).getOrThrow()
@@ -131,7 +123,7 @@ class SdJwtVerifierVerifyIssuanceTest {
         jwtSignatureVerifier: JwtSignatureVerifier<JwtAndClaims>,
         unverifiedSdJwt: String,
     ) {
-        val verification = sdJwtVerifier.verify(
+        val verification = DefaultSdJwtOps.verify(
             jwtSignatureVerifier = jwtSignatureVerifier,
             unverifiedSdJwt = unverifiedSdJwt,
         )
@@ -152,7 +144,7 @@ class SdJwtVerifierVerifyIssuanceTest {
         jwtSignatureVerifier: JwtSignatureVerifier<JwtAndClaims>,
         unverifiedSdJwt: JsonObject,
     ) {
-        val verification = sdJwtVerifier.verify(
+        val verification = DefaultSdJwtOps.verify(
             jwtSignatureVerifier = jwtSignatureVerifier,
             unverifiedSdJwt = unverifiedSdJwt,
         )
@@ -168,13 +160,11 @@ class SdJwtVerifierVerifyIssuanceTest {
         )
     }
 
-    private val sdJwtVerifier = SdJwtVerifier(Clock.fixed(Instant.fromEpochSeconds(1735689500L)))
-
     private suspend fun verifyIssuanceExceptingInvalidDisclosure(
         invalidDisclosures: List<String>,
         unverifiedSdJwt: String,
     ) {
-        sdJwtVerifier.verify(
+        DefaultSdJwtOps.verify(
             jwtSignatureVerifier = DefaultSdJwtOps.NoSignatureValidation,
             unverifiedSdJwt = unverifiedSdJwt,
         ).assertIsFailureWithInvalidDisclosures(invalidDisclosures)
@@ -184,7 +174,7 @@ class SdJwtVerifierVerifyIssuanceTest {
         invalidDisclosures: List<String>,
         unverifiedSdJwt: JsonObject,
     ) {
-        sdJwtVerifier.verify(
+        DefaultSdJwtOps.verify(
             jwtSignatureVerifier = DefaultSdJwtOps.NoSignatureValidation,
             unverifiedSdJwt = unverifiedSdJwt,
         ).assertIsFailureWithInvalidDisclosures(invalidDisclosures)

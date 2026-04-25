@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,6 +34,7 @@ import eu.europa.ec.eudi.sdjwt.vc.IssuerVerificationMethod
 import eu.europa.ec.eudi.sdjwt.vc.SdJwtVcVerifier
 import eu.europa.ec.eudi.sdjwt.vc.TypeMetadataPolicy
 import kotlinx.coroutines.test.runTest
+import kotlinx.datetime.DatePeriod
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
@@ -64,7 +65,6 @@ class KeyBindingTest {
                 .map { nimbusToJwtAndClaims(it) },
         ),
         TypeMetadataPolicy.NotUsed,
-        null,
     )
     private val holder = HolderActor(genKey("holder"), verifier = verifier)
 
@@ -122,6 +122,7 @@ class KeyBindingTest {
             )
 
             // Issuer should know holder's public key
+
             val issuedSdJwt = issuer.issue(holder.pubKey(), emailCredential)
 
             // Holder should know, issuer pub key & signing algorithm to validate SD-JWT
@@ -189,12 +190,20 @@ data class SampleCredential(
     val countries: List<String>,
 )
 
+@Serializable
 data class VerifierChallenge(
     val nonce: String,
     val aud: String,
-    val iat: Instant,
-)
+    val iat: Long,
+) {
+    fun asJson(): JsonObject = Json.encodeToJsonElement(this).jsonObject
 
+    companion object {
+        operator fun invoke(nonce: String, aud: String, iat: Instant) = VerifierChallenge(nonce, aud, iat.epochSeconds)
+    }
+}
+
+@Serializable
 data class VerifierQuery(val challenge: VerifierChallenge, val whatToDisclose: Set<ClaimPath>)
 
 /**
@@ -207,7 +216,7 @@ class IssuerActor(val issuerKey: ECKey) {
     private val iss: String by lazy {
         "did:jwk:${Base64UrlNoPadding.encode(issuerKey.toPublicJWK().toJSONString().encodeToByteArray())}"
     }
-    private val expirationPeriod = (12 * 31).days
+    private val expirationPeriod: DatePeriod = DatePeriod(months = 12)
 
     /**
      * The [SdJwtIssuer]
@@ -229,7 +238,7 @@ class IssuerActor(val issuerKey: ECKey) {
     suspend fun issue(holderPubKey: AsymmetricJWK, credential: SampleCredential): String = with(NimbusSdJwtOps) {
         issuerDebug("Issuing new SD-JWT ...")
         val iat = Clock.System.now()
-        val exp = iat + expirationPeriod
+        val exp = iat.plus(expirationPeriod.days.days)
         val sdJwtElements =
             sdJwt {
                 claim(RFC7519.ISSUER, iss)
@@ -310,9 +319,9 @@ class HolderActor(
 
         return with(NimbusSdJwtOps) {
             val buildKbJwt = kbJwtIssuer(ECDSASigner(holderKey), JWSAlgorithm.ES256, holderKey.toPublicJWK()) {
-                issueTime(Date.from(verifierQuery.challenge.iat.toJavaInstant()))
                 audience(verifierQuery.challenge.aud)
-                claim(RFC9901.CLAIM_NONCE, verifierQuery.challenge.nonce)
+                claim("nonce", verifierQuery.challenge.nonce)
+                issueTime(Date.from(Instant.fromEpochSeconds(verifierQuery.challenge.iat).toJavaInstant()))
             }
             presentationSdJwt.serializeWithKeyBinding(buildKbJwt).getOrThrow()
         }
@@ -329,18 +338,12 @@ class VerifierActor(
     private val expectedNumberOfDisclosures: Int,
     private val verifier: SdJwtVcVerifier<JwtAndClaims>,
 ) {
-    private lateinit var lastChallenge: ChallengePredicate
+    private lateinit var lastChallenge: JsonObject
     private var presentation: SdJwt<JwtAndClaims>? = null
     fun query(): VerifierQuery = VerifierQuery(
         VerifierChallenge(Random.nextBytes(10).toString(), clientId, Clock.System.now()),
         whatToDisclose,
-    ).also {
-        lastChallenge = ChallengePredicate(
-            issuedAt = it.challenge.iat,
-            audience = it.challenge.aud,
-            nonce = it.challenge.nonce,
-        )
-    }
+    ).also { lastChallenge = it.challenge.asJson() }
 
     suspend fun acceptPresentation(unverifiedSdJwt: String) {
         val (presented, _) = verifier.verify(unverifiedSdJwt, lastChallenge).getOrThrow()

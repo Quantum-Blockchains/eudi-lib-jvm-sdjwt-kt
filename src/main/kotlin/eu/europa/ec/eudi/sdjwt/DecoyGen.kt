@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ package eu.europa.ec.eudi.sdjwt
 /**
  * Generates decoy [DisclosureDigest]
  */
-internal fun interface DecoyGen {
+fun interface DecoyGen {
 
     /**
      * Given a [hashingAlgorithm] method produces a decoy [DisclosureDigest]
@@ -33,30 +33,19 @@ internal fun interface DecoyGen {
      * @param numOfDecoys the number of decoys to produce
      * @return a series of decoy [DisclosureDigest]
      */
-    fun gen(hashingAlgorithm: HashAlgorithm, numOfDecoys: Int): List<DisclosureDigest> {
-        return if (numOfDecoys < 1) emptyList()
-        else (1..numOfDecoys).map { gen(hashingAlgorithm) }
+    fun gen(hashingAlgorithm: HashAlgorithm, numOfDecoys: Int): Set<DisclosureDigest> {
+        return if (numOfDecoys < 1) emptySet()
+        else (1..numOfDecoys).map { gen(hashingAlgorithm) }.toSet()
     }
 
     companion object {
-        const val MINIMUM_BYTES: Int = 16
-
         /**
          * Default implementation of [DecoyGen] which produces random decoy [DisclosureDigest]
          */
-        val Default: DecoyGen by lazy { random(MINIMUM_BYTES) }
-
-        /**
-         * Creates a [DecoyGen] with the specified number of bytes for producing random decoy [DisclosureDigest]
-         * @param numOfBytes the number of bytes to be used for producing random decoy [DisclosureDigest].
-         *        Defaults to [MINIMUM_BYTES] (16). Must be at least [MINIMUM_BYTES]
-         * @throws IllegalArgumentException if numOfBytes is less than [MINIMUM_BYTES]
-         */
-        @Throws(IllegalArgumentException::class)
-        fun random(numOfBytes: Int = MINIMUM_BYTES): DecoyGen {
-            require(numOfBytes >= MINIMUM_BYTES) { "numOfBytes must be at least $MINIMUM_BYTES" }
-            val saltProvider = SaltProvider.randomSaltProvider(numOfBytes)
-            return DecoyGen { hashingAlgorithm ->
+        val Default: DecoyGen by lazy {
+            DecoyGen { hashingAlgorithm ->
+                val numberOfBytes = 12..24
+                val saltProvider = SaltProvider.randomSaltProvider(numberOfBytes.random())
                 val random = saltProvider.salt()
                 DisclosureDigest.digest(hashingAlgorithm, random).getOrThrow()
             }

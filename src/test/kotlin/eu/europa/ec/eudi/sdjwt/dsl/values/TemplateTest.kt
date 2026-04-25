@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,17 +27,15 @@ class TemplateTest {
     @Test
     fun test() {
         val sdJwtFactory = SdJwtFactory(
-            hashAlgorithm = HashAlgorithm.SHA_256,
             saltProvider = { "salt" },
             decoyGen = object : DecoyGen {
                 override fun gen(hashingAlgorithm: HashAlgorithm): DisclosureDigest {
                     throw UnsupportedOperationException("Decoy generation not supported for this test")
                 }
 
-                override fun gen(hashingAlgorithm: HashAlgorithm, numOfDecoys: Int): List<DisclosureDigest> =
-                    emptyList()
+                override fun gen(hashingAlgorithm: HashAlgorithm, numOfDecoys: Int): Set<DisclosureDigest> =
+                    emptySet()
             },
-            fallbackMinimumDigests = null,
         )
 
         val spec =

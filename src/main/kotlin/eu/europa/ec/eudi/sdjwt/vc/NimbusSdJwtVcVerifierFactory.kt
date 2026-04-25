@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 package eu.europa.ec.eudi.sdjwt.vc
 
 import com.nimbusds.jose.jwk.JWK
-import com.nimbusds.jose.util.JSONObjectUtils
-import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import eu.europa.ec.eudi.sdjwt.*
 import eu.europa.ec.eudi.sdjwt.dsl.def.DefinitionBasedSdJwtVcValidator
@@ -26,22 +24,14 @@ import eu.europa.ec.eudi.sdjwt.dsl.def.SdJwtDefinition
 import eu.europa.ec.eudi.sdjwt.dsl.def.fromSdJwtVcMetadata
 import eu.europa.ec.eudi.sdjwt.vc.SdJwtVcIssuerPublicKeySource.*
 import eu.europa.ec.eudi.sdjwt.vc.SdJwtVcVerificationError.IssuerKeyVerificationError.*
-import eu.europa.ec.eudi.sdjwt.vc.SdJwtVcVerificationError.StatusVerificationError
 import io.ktor.client.*
 import io.ktor.http.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
-import kotlinx.serialization.KSerializer
-import kotlinx.serialization.Required
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonIgnoreUnknownKeys
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.serializer
 import java.security.cert.X509Certificate
 import java.text.ParseException
 import com.nimbusds.jose.jwk.JWK as NimbusJWK
@@ -57,7 +47,6 @@ internal object NimbusSdJwtVcVerifierFactory : SdJwtVcVerifierFactory<NimbusSign
     override fun invoke(
         issuerVerificationMethod: IssuerVerificationMethod<SignedJWT, JWK, List<X509Certificate>>,
         typeMetadataPolicy: TypeMetadataPolicy,
-        checkStatus: CheckWithTokenStatusList?,
     ): SdJwtVcVerifier<SignedJWT> {
         val jwtSignatureVerifier = when (issuerVerificationMethod) {
             is IssuerVerificationMethod.UsingIssuerMetadata -> sdJwtVcSignatureVerifier(
@@ -72,14 +61,13 @@ internal object NimbusSdJwtVcVerifierFactory : SdJwtVcVerifierFactory<NimbusSign
             is IssuerVerificationMethod.Custom -> issuerVerificationMethod.jwtSignatureVerifier
         }
 
-        return NimbusSdJwtVcVerifier(jwtSignatureVerifier, typeMetadataPolicy, checkStatus)
+        return NimbusSdJwtVcVerifier(jwtSignatureVerifier, typeMetadataPolicy)
     }
 }
 
 private class NimbusSdJwtVcVerifier(
     private val jwtSignatureVerifier: JwtSignatureVerifier<NimbusSignedJWT>,
     private val typeMetadataPolicy: TypeMetadataPolicy,
-    private val checkStatus: CheckWithTokenStatusList?,
 ) : SdJwtVcVerifier<NimbusSignedJWT> {
     private fun keyBindingVerifierForSdJwtVc(challenge: JsonObject?): KeyBindingVerifier.MustBePresentAndValid<NimbusSignedJWT> =
         with(NimbusSdJwtOps) {
@@ -90,24 +78,17 @@ private class NimbusSdJwtVcVerifier(
         runCatchingCancellable {
             val sdJwt = NimbusSdJwtOps.verify(jwtSignatureVerifier, unverifiedSdJwt).getOrThrow()
             typeMetadataPolicy.validate(sdJwt)
-            checkStatus?.ensureStatusIsValid(sdJwt)
             sdJwt
         }
 
     override suspend fun verify(
         unverifiedSdJwt: String,
-        challenge: ChallengePredicate?,
+        challenge: JsonObject?,
     ): Result<SdJwtAndKbJwt<NimbusSignedJWT>> =
         runCatchingCancellable {
-            val keyBindingVerifier = keyBindingVerifierForSdJwtVc(challenge?.exactMatchClaims)
-            val sdJwtAndKbJwt = NimbusSdJwtOps.verify(
-                jwtSignatureVerifier,
-                keyBindingVerifier,
-                challenge,
-                unverifiedSdJwt,
-            ).getOrThrow()
+            val keyBindingVerifier = keyBindingVerifierForSdJwtVc(challenge)
+            val sdJwtAndKbJwt = NimbusSdJwtOps.verify(jwtSignatureVerifier, keyBindingVerifier, unverifiedSdJwt).getOrThrow()
             typeMetadataPolicy.validate(sdJwtAndKbJwt.sdJwt)
-            checkStatus?.ensureStatusIsValid(sdJwtAndKbJwt.sdJwt)
             sdJwtAndKbJwt
         }
 }
@@ -216,7 +197,7 @@ internal sealed interface SdJwtVcIssuerPublicKeySource {
 
     data class Metadata(val iss: Url, val kid: String?) : SdJwtVcIssuerPublicKeySource
 
-    data class X509CertChain(val chain: List<X509Certificate>) : SdJwtVcIssuerPublicKeySource
+    data class X509CertChain(val iss: Url, val chain: List<X509Certificate>) : SdJwtVcIssuerPublicKeySource
 
     data class DIDUrl(val iss: String, val kid: String?) : SdJwtVcIssuerPublicKeySource
 }
@@ -231,17 +212,42 @@ internal fun keySource(jwt: NimbusSignedJWT): SdJwtVcIssuerPublicKeySource {
     val issUrl = iss?.let { runCatchingCancellable { Url(it) }.getOrNull() }
     val issScheme = issUrl?.protocol?.name
 
+    fun X509Certificate.containsIssuerDnsName(iss: Url): Boolean {
+        val issuerFQDN = iss.host
+        val dnsNames = sanOfDNSName().getOrDefault(emptyList())
+        return issuerFQDN in dnsNames
+    }
+
+    fun X509Certificate.containsIssuerUri(iss: Url): Boolean {
+        val names = sanOfUniformResourceIdentifier().getOrDefault(emptyList())
+        return iss.toString() in names
+    }
+
     return when {
-        certChain.isNotEmpty() -> X509CertChain(certChain)
+        issScheme == HTTPS_URI_SCHEME && certChain.isNotEmpty() -> {
+            val leaf = certChain.first()
+            if (leaf.containsIssuerUri(issUrl) || leaf.containsIssuerDnsName(issUrl)) X509CertChain(
+                issUrl,
+                certChain,
+            )
+            else raise(UntrustedIssuerCertificate("Failed to find $issUrl in SAN URI or SAN DNS entries of provided leaf certificate"))
+        }
+
         issScheme == HTTPS_URI_SCHEME -> Metadata(issUrl, kid)
-        issScheme == DID_URI_SCHEME -> DIDUrl(iss, kid)
+        issScheme == DID_URI_SCHEME && certChain.isEmpty() -> DIDUrl(iss, kid)
         else -> raise(CannotDetermineIssuerVerificationMethod)
     }
 }
 
 private suspend fun TypeMetadataPolicy.validate(sdJwt: SdJwt<NimbusSignedJWT>) {
     val typeMetadata = resolveTypeMetadataOf(sdJwt)
-    typeMetadata?.validate(sdJwt)
+    if (null != typeMetadata) {
+        val recreatedCredential = typeMetadata.validate(sdJwt)
+        val jsonSchemas = typeMetadata.schemas
+        if (jsonSchemas.isNotEmpty()) {
+            jsonSchemaValidator?.validatePayloadAgainst(recreatedCredential, jsonSchemas)
+        }
+    }
 }
 
 private suspend fun TypeMetadataPolicy.resolveTypeMetadataOf(sdJwt: SdJwt<NimbusSignedJWT>): ResolvedTypeMetadata? =
@@ -277,46 +283,17 @@ private fun ResolvedTypeMetadata.validate(sdJwt: SdJwt<NimbusSignedJWT>): JsonOb
     }
 }
 
-private suspend fun CheckWithTokenStatusList.ensureStatusIsValid(sdJwt: SdJwt<NimbusSignedJWT>) {
-    val statusListReference = sdJwt.jwt.jwtClaimsSet.jsonObjectClaim(TokenStatusListSpec.STATUS)
-        .getOrElse { raise(StatusVerificationError.StatusCheckFailure("'${TokenStatusListSpec.STATUS}' claim must be a JsonObject", it)) }
-        ?.decodeAs<StatusClaim>()
-        ?.getOrElse { raise(StatusVerificationError.StatusCheckFailure("'${TokenStatusListSpec.STATUS}' claim is malformed", it)) }
-        ?.statusListReference
+private val TypeMetadataPolicy.jsonSchemaValidator: JsonSchemaValidator?
+    get() = when (this) {
+        TypeMetadataPolicy.NotUsed -> null
+        is TypeMetadataPolicy.Optional -> jsonSchemaValidator
+        is TypeMetadataPolicy.AlwaysRequired -> jsonSchemaValidator
+        is TypeMetadataPolicy.RequiredFor -> jsonSchemaValidator
+    }
 
-    if (null != statusListReference) {
-        val status = runCatchingCancellable {
-            invoke(statusListReference.uri, statusListReference.index)
-        }.getOrElse { raise(StatusVerificationError.StatusCheckFailure("Unable to check Status in Token Status List", it)) }
-
-        if (status is Status.NonValid) {
-            raise(StatusVerificationError.NonValidStatus(status))
-        }
+private suspend fun JsonSchemaValidator.validatePayloadAgainst(payload: JsonObject, schemas: List<JsonSchema>) {
+    val result = validate(payload, schemas)
+    if (result is JsonSchemaValidationResult.Invalid) {
+        raise(SdJwtVcVerificationError.JsonSchemaVerificationError.JsonSchemaValidationFailure(result.errors))
     }
 }
-
-@Serializable
-@JsonIgnoreUnknownKeys
-private data class StatusClaim(
-    @SerialName(TokenStatusListSpec.STATUS_LIST) val statusListReference: StatusListReferenceClaim? = null,
-)
-
-@Serializable
-private data class StatusListReferenceClaim(
-    @Required @SerialName(TokenStatusListSpec.INDEX) val index: UInt,
-    @Required @SerialName(TokenStatusListSpec.URI) val uri: String,
-)
-
-private fun JWTClaimsSet.jsonObjectClaim(claim: String): Result<JsonObject?> =
-    runCatching {
-        getJSONObjectClaim(claim)
-            ?.let {
-                val serialized = JSONObjectUtils.toJSONString(it)
-                Json.decodeFromString<JsonObject>(serialized)
-            }
-    }
-
-private inline fun <reified T : Any> JsonElement.decodeAs(serializer: KSerializer<T> = serializer<T>()): Result<T> =
-    runCatching {
-        Json.decodeFromJsonElement(serializer, this)
-    }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -66,7 +66,7 @@ interface SdJwtVcVerifier<out JWT> {
      * are representing in both string and decoded payload.
      * Expected errors are reported via a [SdJwtVerificationException]
      */
-    suspend fun verify(unverifiedSdJwt: String, challenge: ChallengePredicate?): Result<SdJwtAndKbJwt<JWT>>
+    suspend fun verify(unverifiedSdJwt: String, challenge: JsonObject?): Result<SdJwtAndKbJwt<JWT>>
 
     /**
      * Verifies a SD-JWT+KB in JWS JSON serialization.
@@ -80,7 +80,7 @@ interface SdJwtVcVerifier<out JWT> {
      * are representing in both string and decoded payload.
      * Expected errors are reported via a [SdJwtVerificationException]
      */
-    suspend fun verify(unverifiedSdJwt: JsonObject, challenge: ChallengePredicate?): Result<SdJwtAndKbJwt<JWT>> =
+    suspend fun verify(unverifiedSdJwt: JsonObject, challenge: JsonObject?): Result<SdJwtAndKbJwt<JWT>> =
         verify(JwsJsonSupport.parseIntoStandardForm(unverifiedSdJwt), challenge)
 }
 
@@ -91,7 +91,7 @@ fun <JWT, JWT1> SdJwtVcVerifier<JWT>.map(f: (JWT) -> JWT1): SdJwtVcVerifier<JWT1
 
         override suspend fun verify(
             unverifiedSdJwt: String,
-            challenge: ChallengePredicate?,
+            challenge: JsonObject?,
         ): Result<SdJwtAndKbJwt<JWT1>> =
             this@map.verify(unverifiedSdJwt, challenge).map { it.map(f) }
     }
@@ -156,18 +156,18 @@ sealed interface SdJwtVcVerificationError {
     }
 
     /**
-     * Verification error regarding Status check and validation.
+     * Verification errors regarding Json schema validations.
      */
-    sealed interface StatusVerificationError : SdJwtVcVerificationError {
-        /**
-         * Status could not be checked.
-         */
-        class StatusCheckFailure(val message: String, val cause: Throwable) : StatusVerificationError
+    sealed interface JsonSchemaVerificationError : SdJwtVcVerificationError {
 
         /**
-         * The Status of an SD-JWT VC is non-valid.
+         * Indicates violations were found when trying to validate an SD-JWT VC against a Json Schema.
          */
-        data class NonValidStatus(val status: Status.NonValid) : StatusVerificationError
+        data class JsonSchemaValidationFailure(val errors: Map<Int, List<JsonSchemaViolation>>) : JsonSchemaVerificationError {
+            init {
+                require(errors.isNotEmpty()) { "errors must not be empty" }
+            }
+        }
     }
 }
 

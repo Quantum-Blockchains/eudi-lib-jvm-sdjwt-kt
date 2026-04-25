@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -73,12 +73,12 @@ class FindElementTest {
 
     @Test
     fun testWithKnownPidAttributesDisplay() {
-        fun labelOf(path: ClaimPath, locale: String = "en") =
+        fun labelOf(path: ClaimPath, lang: String = "en") =
             PidDefinition.findElement(path)
                 ?.value
                 ?.attributeMetadata()
                 ?.display
-                ?.first { it.locale.value == locale }
+                ?.first { it.lang.value == lang }
                 ?.label
 
         listOf(

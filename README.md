@@ -28,7 +28,7 @@ the [EUDI Wallet Reference Implementation project description](https://github.co
 This is a library offering a DSL (domain-specific language) for defining how a set of claims should be made selectively
 disclosable.
 
-Library implements [RFC 9901](https://www.rfc-editor.org/rfc/rfc9901.html)
+Library implements [SD-JWT draft 12](https://www.ietf.org/archive/id/draft-ietf-oauth-selective-disclosure-jwt-12.html)
 is implemented in Kotlin, targeting JVM.
 
 Library's SD-JWT DSL leverages the DSL provided by
@@ -128,7 +128,7 @@ import kotlinx.coroutines.runBlocking
 val verifiedIssuanceSdJwt: SdJwt<SignedJWT> = runBlocking {
     with(NimbusSdJwtOps) {
         val jwtSignatureVerifier = RSASSAVerifier(issuerRsaKeyPair).asJwtVerifier()
-        val unverifiedIssuanceSdJwt = serializedUnverifiedIssuanceSdJwt
+        val unverifiedIssuanceSdJwt = loadSdJwt("/exampleIssuanceSdJwt.txt")
         verify(jwtSignatureVerifier, unverifiedIssuanceSdJwt).getOrThrow()
     }
 }
@@ -143,7 +143,7 @@ val verifiedIssuanceSdJwt: SdJwt<SignedJWT> = runBlocking {
 In this case, a `Holder` of an SD-JWT issued by an `Issuer`, wants to create a presentation for a `Verifier`.
 The `Holder` should know which of the selectively disclosed claims to include in the presentation.
 The selectively disclosed claims to include in the presentation are expressed using Claim Paths as per 
-[SD-JWT VC draft 13](https://www.ietf.org/archive/id/draft-ietf-oauth-sd-jwt-vc-13.html#name-claim-path).
+[SD-JWT VC draft 11](https://www.ietf.org/archive/id/draft-ietf-oauth-sd-jwt-vc-11.html#name-claim-path).
 
 <!--- INCLUDE
 import com.nimbusds.jose.JWSAlgorithm
@@ -216,7 +216,7 @@ import kotlinx.coroutines.*
 val verifiedPresentationSdJwt: SdJwt<SignedJWT> = runBlocking {
     with(NimbusSdJwtOps) {
         val jwtSignatureVerifier = RSASSAVerifier(issuerRsaKeyPair).asJwtVerifier()
-        val unverifiedPresentationSdJwt = serializedUnverifiedPresentationSdJwt
+        val unverifiedPresentationSdJwt = loadSdJwt("/examplePresentationSdJwt.txt")
         verify(
             jwtSignatureVerifier,
             unverifiedPresentationSdJwt,
@@ -377,17 +377,17 @@ All examples assume that we have the following claim set
 }
 ```
 
-- [Example: Flat SD-JWT](docs/examples/example-flat-sd-jwt-01.md)
-- [Example: Structured SD-JWT](docs/examples/example-structured-sd-jwt-01.md)
-- [Example: SD-JWT with Recursive Disclosures](docs/examples/example-recursive-sd-jwt-01.md)
-- [Appendix A.1 - Handling Structured Claims](docs/examples/example-handling-structure-claims-01.md)
-- [Appendix A.2 - Complex Structured SD-JWT](docs/examples/example-complex-structured-sd-jwt-01.md)
-- [Appendix A.3 - SD-JWT-based Verifiable Credentials (SD-JWT VC)](docs/examples/example-sd-jwt-vc-01.md)
-- [Appendix A.4 - W3C Verifiable Credentials Data Model v2.0](docs/examples/example-sd-jwt-vc-data-v02-01.md)
+- [Example 1: Flat SD-JWT](docs/examples/example-flat-sd-jwt-01.md)
+- [Example 2: Structured SD-JWT](docs/examples/example-structured-sd-jwt-01.md)
+- [Example 3: SD-JWT with Recursive Disclosures](docs/examples/example-recursive-sd-jwt-01.md)
+- [Appendix 1 - Example 2: Handling Structured Claims](docs/examples/example-handling-structure-claims-01.md)
+- [Appendix 2 - Example 3: Complex Structured SD-JWT](docs/examples/example-complex-structured-sd-jwt-01.md)
+- [Appendix 3 - Example 4a: SD-JWT-based Verifiable Credentials (SD-JWT VC)](docs/examples/example-sd-jwt-vc-01.md)
+- [Appendix 4 - Example 4b: W3C Verifiable Credentials Data Model v2.0](docs/examples/example-sd-jwt-vc-data-v02-01.md)
 
 ## SD-JWT VC support
 
-The library provides comprehensive support for [SD-JWT-based Verifiable Credentials](https://www.ietf.org/archive/id/draft-ietf-oauth-sd-jwt-vc-13.html), including advanced features for type metadata, validation, and credential building.
+The library provides comprehensive support for [SD-JWT-based Verifiable Credentials](https://www.ietf.org/archive/id/draft-ietf-oauth-sd-jwt-vc-11.html), including advanced features for type metadata, validation, and credential building.
 
 ### SD-JWT VC Verification
 
@@ -434,7 +434,6 @@ val sdJwtVcVerification = runBlocking {
                 chain.first().base64 == issuerEcKeyPairWithCertificate.x509CertChain.first()
             },
             typeMetadataPolicy = TypeMetadataPolicy.NotUsed,
-            null,
         )
         verifier.verify(sdJwt)
     }
@@ -453,9 +452,9 @@ val sdJwtVcVerification = runBlocking {
 The library provides robust support for SD-JWT-VC type metadata through the [SdJwtDefinition](src/main/kotlin/eu/europa/ec/eudi/sdjwt/dsl/def/SdJwtDefinition.kt) class. This hierarchical representation accurately models the disclosure and display properties of SD-JWT-VC credentials.
 
 Key features include:
-- Rich metadata representation with `VctMetadata` including name, description and display information  
-- Automatic handling of claims that should never be selectively disclosable according to the SD-JWT-VC specification  
-- Hierarchical structure that accurately represents the disclosure properties of nested objects and arrays  
+- Rich metadata representation with `VctMetadata` including name, description, display information, and schemas
+- Automatic handling of claims that should never be selectively disclosable according to the SD-JWT-VC specification
+- Hierarchical structure that accurately represents the disclosure properties of nested objects and arrays
 
 ### Type Metadata Resolution
 
@@ -470,6 +469,7 @@ Example usage:
 ```kotlin
 val resolver = ResolveTypeMetadata(
     lookupTypeMetadata = LookupTypeMetadataUsingKtor(),
+    lookupJsonSchema = LookupJsonSchemaUsingKtor()
 )
 val typeMetadata = resolver(Vct("https://example.com/credentials/sample")).getOrThrow()
 ```
@@ -513,15 +513,6 @@ The validation result (`DefinitionBasedValidationResult`) can be either:
 - `Valid`: Contains the recreated credential and disclosures per claim path
 - `Invalid`: Contains a list of specific violations (missing claims, wrong types, etc.)
 
-### Token Status List 
-
-When constructing an `SdJwtVcVerifier`, a Verifier can provide a `CheckWithTokenStatusList` implementation to check the Status
-of an SD-JWT VC from a Token Status List.
-
-If an SD-JWT VC contains a `status` claim, with a Token Status List Reference (`status_list` claim), the library will attempt to check 
-the Status in the Token Status List using the provided `CheckWithTokenStatusList` implementation, and ensure that the Status is valid. 
-
-In case Status is non-valid, the SD-JWT VC is rejected, and an error is raised.
 
 ## How to contribute
 
@@ -532,7 +523,7 @@ involved, follow the guidelines found in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### License details
 
-Copyright (c) 2023-2026 European Commission
+Copyright (c) 2023 European Commission
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

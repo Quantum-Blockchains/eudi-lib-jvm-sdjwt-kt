@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2026 European Commission
+ * Copyright (c) 2023 European Commission
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +16,10 @@
 package eu.europa.ec.eudi.sdjwt
 
 /**
- * [Selective Disclosure for JWTs (SD-JWT)](https://www.rfc-editor.org/rfc/rfc9901.html)
+ * [Selective Disclosure for JWTs (SD-JWT)](https://datatracker.ietf.org/doc/draft-ietf-oauth-selective-disclosure-jwt/)
  */
 @Suppress("UNUSED")
-object RFC9901 {
+object SdJwtSpec {
     /**
      * Digests of Disclosures for object properties
      */
@@ -34,11 +34,6 @@ object RFC9901 {
      * Digest of the SD-JWT to which the KB-JWT is tied
      */
     const val CLAIM_SD_HASH: String = "sd_hash"
-
-    /**
-     * Nonce value for KB-JWT to ensure freshness.
-     */
-    const val CLAIM_NONCE: String = "nonce"
 
     /**
      * Digest of the Disclosure for an array element
@@ -104,7 +99,7 @@ object RFC7515 {
 }
 
 /**
- * [SD-JWT-based Verifiable Credentials](https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/13/)
+ * [SD-JWT-based Verifiable Credentials](https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/11/)
  */
 object SdJwtVcSpec {
 
@@ -138,18 +133,20 @@ object SdJwtVcSpec {
     const val EXTENDS_INTEGRITY: String = "$EXTENDS$HASH_INTEGRITY"
     const val DISPLAY: String = "display"
     const val CLAIMS: String = "claims"
+    const val SCHEMA: String = "schema"
+    const val SCHEMA_URI: String = "schema_uri"
+    const val SCHEMA_URI_INTEGRITY: String = "$SCHEMA_URI$HASH_INTEGRITY"
     const val CLAIM_PATH: String = "path"
     const val CLAIM_DISPLAY: String = "display"
-    const val CLAIM_MANDATORY: String = "mandatory"
     const val CLAIM_SD: String = "sd"
     const val CLAIM_SD_ALWAYS: String = "always"
     const val CLAIM_SD_ALLOWED: String = "allowed"
     const val CLAIM_SD_NEVER: String = "never"
     const val CLAIM_SVG_ID: String = "svg_id"
-    const val CLAIM_LOCALE: String = "locale"
+    const val CLAIM_LANG: String = "lang"
     const val CLAIM_LABEL = "label"
     const val CLAIM_DESCRIPTION = DESCRIPTION
-    const val LOCALE: String = "locale"
+    const val LANG: String = "lang"
     const val RENDERING: String = "rendering"
     const val SIMPLE: String = "simple"
     const val SVG_TEMPLATES: String = "svg_templates"
@@ -159,9 +156,6 @@ object SdJwtVcSpec {
     const val LOGO_ALT_TEXT: String = "alt_text"
     const val BACKGROUND_COLOR: String = "background_color"
     const val TEXT_COLOR: String = "text_color"
-    const val BACKGROUND_IMAGE: String = "background_image"
-    const val BACKGROUND_IMAGE_URI: String = "uri"
-    const val BACKGROUND_IMAGE_URI_INTEGRITY: String = "uri#integrity"
     const val SVG_URI: String = "uri"
     const val SVG_URI_INTEGRITY: String = "$SVG_URI$HASH_INTEGRITY"
     const val SVG_PROPERTIES: String = "properties"
@@ -201,7 +195,4 @@ object RFC7800 {
  */
 object TokenStatusListSpec {
     const val STATUS: String = "status"
-    const val STATUS_LIST: String = "status_list"
-    const val INDEX: String = "idx"
-    const val URI: String = "uri"
 }
